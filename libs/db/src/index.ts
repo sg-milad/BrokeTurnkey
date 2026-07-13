@@ -1,2 +1,3 @@
-export * from './db.module';
-export * from './db.service';
+export * from './schema';
+export { DatabaseModule, DRIZZLE_CLIENT } from './database.module';
+export type { DrizzleClient } from './db';

@@ -2,6 +2,11 @@ packages:
   - 'apps/*'
   - 'libs/*'
 
+allowBuilds:
+  esbuild: false
+  unrs-resolver: false
+
 onlyBuiltDependencies:
   - '@nestjs/core'
   - 'unrs-resolver'
+  - 'esbuild'
