@@ -1,0 +1,74 @@
+services:
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: walletmvp-vault
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: "http://0.0.0.0:8200"
+    volumes:
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+      - ./vault/config:/vault/config:ro
+    cap_add:
+      - IPC_LOCK
+      - CAP_SETFCAP
+    command: vault server -config=/vault/config/vault.hcl
+
+  postgres:
+    image: postgres:16
+    container_name: walletmvp-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: walletmvp
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: development
+    container_name: walletmvp-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Mount source for hot-reload in development
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - vault
+      - postgres
+    command: pnpm run start:dev
+
+  signer-build:
+    # One-shot container: builds the Go binary and exits.
+    # The binary is written to ./bin/signer on the host via the volume mount.
+    # Run with: docker compose run --rm signer-build
+    image: golang:1.23-alpine
+    container_name: walletmvp-signer-build
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      sh -c "
+        apk add --no-cache gcc musl-dev &&
+        go build -o bin/signer ./cmd/signer
+      "
+    profiles:
+      # Not started by default with `docker compose up`.
+      # Run explicitly: docker compose run --rm signer-build
+      - build
+
+volumes:
+  vault-data:
+  vault-logs:
+  postgres-data:

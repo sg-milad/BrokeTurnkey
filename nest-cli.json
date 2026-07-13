@@ -72,15 +72,6 @@
       "compilerOptions": {
         "tsConfigPath": "libs/wallet/tsconfig.lib.json"
       }
-    },
-    "wallet2": {
-      "type": "application",
-      "root": "apps/wallet2",
-      "entryFile": "main",
-      "sourceRoot": "apps/wallet2/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/wallet2/tsconfig.app.json"
-      }
     }
   }
 }

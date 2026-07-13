@@ -1,0 +1,198 @@
+// WalletMVP — PostgreSQL Schema
+// B2B: organisations → users → wallets
+// Tool: https://dbdiagram.io — paste this to visualise
+
+// ─────────────────────────────────────────────
+// B2B LAYER
+// ─────────────────────────────────────────────
+
+Table organisations {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  name          varchar(255) [not null]
+  slug          varchar(100) [not null, unique, note: 'URL-safe identifier used in API paths']
+  status        varchar(20)  [not null, default: 'active', note: 'active | suspended | deleted']
+  plan          varchar(50)  [not null, default: 'starter', note: 'starter | growth | enterprise']
+  created_at    timestamptz  [not null, default: `now()`]
+  updated_at    timestamptz  [not null, default: `now()`]
+
+  indexes {
+    slug [unique]
+  }
+}
+
+Table users {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  org_id        uuid        [not null, ref: > organisations.id]
+  external_id   varchar(255) [not null, note: 'ID from the B2B customer own user table']
+  email         varchar(255)
+  role          varchar(30)  [not null, default: 'member', note: 'owner | admin | member']
+  status        varchar(20)  [not null, default: 'active', note: 'active | suspended | deleted']
+  created_at    timestamptz  [not null, default: `now()`]
+  updated_at    timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (org_id, external_id) [unique, name: 'uq_users_org_external']
+  }
+}
+
+// ─────────────────────────────────────────────
+// API KEY AUTH (stamp-based, per org)
+// ─────────────────────────────────────────────
+
+Table api_keys {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  org_id        uuid        [not null, ref: > organisations.id]
+  name          varchar(100) [not null, note: 'Human label e.g. "production key"']
+  public_key    text        [not null, unique, note: 'P-256 public key (PEM or compressed hex) used to verify stamps']
+  key_id        varchar(64)  [not null, unique, note: 'Short ID sent in the X-Stamp header']
+  status        varchar(20)  [not null, default: 'active', note: 'active | revoked']
+  last_used_at  timestamptz
+  expires_at    timestamptz
+  created_at    timestamptz  [not null, default: `now()`]
+  revoked_at    timestamptz
+
+  indexes {
+    key_id [unique]
+    org_id
+  }
+}
+
+// ─────────────────────────────────────────────
+// KEY MATERIAL
+// One BIP39 seed per organisation.
+// Seed is AES-256-GCM encrypted with a DEK.
+// DEK is wrapped by Vault Transit (KEK).
+// ─────────────────────────────────────────────
+
+Table organisation_seeds {
+  id              uuid  [pk, default: `gen_random_uuid()`]
+  org_id          uuid  [not null, unique, ref: > organisations.id, note: 'One seed per org']
+  encrypted_seed  bytea [not null, note: 'AES-256-GCM ciphertext of the BIP39 mnemonic']
+  seed_nonce      bytea [not null, note: '12-byte GCM nonce used to encrypt the seed']
+  encrypted_dek   text  [not null, note: 'Vault Transit ciphertext of the DEK e.g. vault:v1:...']
+  created_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    org_id [unique, name: 'uq_org_seeds_org']
+  }
+}
+
+// ─────────────────────────────────────────────
+// WALLETS
+// Child keys derived from the org seed via BIP32.
+// Private keys are NEVER stored — derived ephemerally at sign time.
+// ─────────────────────────────────────────────
+
+Table wallets {
+  id               uuid        [pk, default: `gen_random_uuid()`]
+  org_id           uuid        [not null, ref: > organisations.id]
+  user_id          uuid        [not null, ref: > users.id]
+  label            varchar(100)
+  address          varchar(42)  [not null, note: 'Ethereum address 0x...']
+  derivation_path  varchar(50)  [not null, note: "e.g. m/44'/60'/0'/0/3"]
+  chain_id         integer      [not null, default: 1, note: '1=mainnet, 11155111=sepolia']
+  status           varchar(20)  [not null, default: 'active', note: 'active | frozen | deleted']
+  created_at       timestamptz  [not null, default: `now()`]
+  updated_at       timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (org_id, address)          [unique, name: 'uq_wallets_org_address']
+    (org_id, derivation_path)  [unique, name: 'uq_wallets_org_path']
+    user_id
+  }
+}
+
+// ─────────────────────────────────────────────
+// SIGNING REQUESTS
+// Record of every sign call — pre and post.
+// ─────────────────────────────────────────────
+
+Table signing_requests {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  org_id        uuid        [not null, ref: > organisations.id]
+  wallet_id     uuid        [not null, ref: > wallets.id]
+  tx_hash       varchar(66)  [note: '0x-prefixed keccak256 of the tx payload']
+  tx_payload    jsonb        [note: 'raw unsigned tx fields: to, value, data, gas, nonce, chainId']
+  signature     text         [note: 'r+s+v hex — null until signed']
+  status        varchar(20)  [not null, default: 'pending', note: 'pending | signed | failed | rejected']
+  failure_reason text
+  policy_result jsonb        [note: 'snapshot of policy engine decision for audit']
+  created_at    timestamptz  [not null, default: `now()`]
+  signed_at     timestamptz
+
+  indexes {
+    wallet_id
+    org_id
+    tx_hash
+  }
+}
+
+// ─────────────────────────────────────────────
+// NONCE TRACKING
+// Prevents nonce collisions when multiple sign
+// requests are in flight for the same wallet.
+// ─────────────────────────────────────────────
+
+Table wallet_nonces {
+  id            uuid     [pk, default: `gen_random_uuid()`]
+  wallet_id     uuid     [not null, unique, ref: > wallets.id]
+  chain_id      integer  [not null]
+  nonce         integer  [not null, default: 0]
+  updated_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (wallet_id, chain_id) [unique, name: 'uq_nonces_wallet_chain']
+  }
+}
+
+// ─────────────────────────────────────────────
+// POLICIES
+// Per-org rules evaluated before every sign.
+// ─────────────────────────────────────────────
+
+Table policies {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  org_id        uuid        [not null, ref: > organisations.id]
+  name          varchar(100) [not null]
+  description   text
+  rule_type     varchar(50)  [not null, note: 'spend_limit | allowlist | time_lock | require_approval']
+  rule_config   jsonb        [not null, note: 'rule-specific params e.g. {max_value_eth: 1.0}']
+  applies_to    varchar(20)  [not null, default: 'all', note: 'all | wallet | user']
+  target_id     uuid         [note: 'wallet_id or user_id when applies_to != all']
+  priority      integer      [not null, default: 0, note: 'higher = evaluated first']
+  status        varchar(20)  [not null, default: 'active', note: 'active | disabled']
+  created_at    timestamptz  [not null, default: `now()`]
+  updated_at    timestamptz  [not null, default: `now()`]
+
+  indexes {
+    org_id
+    (org_id, status)
+  }
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// Append-only. App role has INSERT only —
+// no UPDATE or DELETE privileges on this table.
+// ─────────────────────────────────────────────
+
+Table audit_log {
+  id            bigserial    [pk]
+  org_id        uuid         [not null, ref: > organisations.id]
+  user_id       uuid         [ref: > users.id, note: 'null for system events']
+  wallet_id     uuid         [ref: > wallets.id, note: 'null for non-wallet events']
+  api_key_id    uuid         [ref: > api_keys.id, note: 'which key made the request']
+  event         varchar(60)  [not null, note: 'wallet_created | tx_signed | tx_rejected | key_rotated | policy_updated | api_key_revoked | ...']
+  status        varchar(20)  [not null, note: 'success | failure']
+  metadata      jsonb        [note: 'event-specific detail — tx_hash, policy_id, reason, etc.']
+  ip_address    inet
+  user_agent    text
+  created_at    timestamptz  [not null, default: `now()`]
+
+  indexes {
+    org_id
+    (org_id, event)
+    (org_id, wallet_id)
+    created_at
+  }
+}
