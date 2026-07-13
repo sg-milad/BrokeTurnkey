@@ -1,0 +1,63 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@app/auth": [
+        "libs/auth/src"
+      ],
+      "@app/auth/*": [
+        "libs/auth/src/*"
+      ],
+      "@app/db": [
+        "libs/db/src"
+      ],
+      "@app/db/*": [
+        "libs/db/src/*"
+      ],
+      "@app/gas": [
+        "libs/gas/src"
+      ],
+      "@app/gas/*": [
+        "libs/gas/src/*"
+      ],
+      "@app/policy": [
+        "libs/policy/src"
+      ],
+      "@app/policy/*": [
+        "libs/policy/src/*"
+      ],
+      "@app/vault": [
+        "libs/vault/src"
+      ],
+      "@app/vault/*": [
+        "libs/vault/src/*"
+      ],
+      "@app/wallet": [
+        "libs/wallet/src"
+      ],
+      "@app/wallet/*": [
+        "libs/wallet/src/*"
+      ]
+    }
+  }
+}

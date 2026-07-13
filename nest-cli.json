@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/wallet2/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/wallet2/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/wallet2",
+  "projects": {
+    "api": {
+      "type": "application",
+      "root": "apps/api",
+      "entryFile": "main",
+      "sourceRoot": "apps/api/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api/tsconfig.app.json"
+      }
+    },
+    "auth": {
+      "type": "library",
+      "root": "libs/auth",
+      "entryFile": "index",
+      "sourceRoot": "libs/auth/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/auth/tsconfig.lib.json"
+      }
+    },
+    "db": {
+      "type": "library",
+      "root": "libs/db",
+      "entryFile": "index",
+      "sourceRoot": "libs/db/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/db/tsconfig.lib.json"
+      }
+    },
+    "gas": {
+      "type": "library",
+      "root": "libs/gas",
+      "entryFile": "index",
+      "sourceRoot": "libs/gas/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/gas/tsconfig.lib.json"
+      }
+    },
+    "policy": {
+      "type": "library",
+      "root": "libs/policy",
+      "entryFile": "index",
+      "sourceRoot": "libs/policy/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/policy/tsconfig.lib.json"
+      }
+    },
+    "vault": {
+      "type": "library",
+      "root": "libs/vault",
+      "entryFile": "index",
+      "sourceRoot": "libs/vault/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/vault/tsconfig.lib.json"
+      }
+    },
+    "wallet": {
+      "type": "library",
+      "root": "libs/wallet",
+      "entryFile": "index",
+      "sourceRoot": "libs/wallet/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/wallet/tsconfig.lib.json"
+      }
+    },
+    "wallet2": {
+      "type": "application",
+      "root": "apps/wallet2",
+      "entryFile": "main",
+      "sourceRoot": "apps/wallet2/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/wallet2/tsconfig.app.json"
+      }
+    }
+  }
+}
