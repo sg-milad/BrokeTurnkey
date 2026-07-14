@@ -58,9 +58,9 @@ skeleton that everything else will plug into.
   `env_file: .env.crypto`, no host port exposed, on `walletmvp-network`,
   `depends_on: vault`
 - `.env.crypto` — `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, `CRYPTO_PORT`
+- there is /helath path in nestjs, you should curl crypto:port/health.
 
-**Done when:** `docker compose up` starts the crypto container without errors
-and `curl http://localhost:CRYPTO_PORT/health` returns `200`.
+**Done when:** `docker compose up` starts the crypto container without errors and /health return 200.
 
 ---
 
