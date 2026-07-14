@@ -1,7 +1,7 @@
 # Vault Initialisation Runbook
 
 Run this every time you set up Vault from scratch (new machine, wiped volume,
-or after a `docker compose down -v`). After the first run, the only thing you
+or after `docker compose down -v`). After the first run, the only thing you
 do on restart is **unseal** — not re-init.
 
 ---
@@ -9,7 +9,7 @@ do on restart is **unseal** — not re-init.
 ## Pre-flight checklist
 
 - [ ] `docker compose up -d` has been run
-- [ ] Both containers show `Up` in `docker compose ps`
+- [ ] All containers show `Up` in `docker compose ps`
 - [ ] `.env.vault` does NOT yet exist (or has been emptied)
 - [ ] `.gitignore` contains `.env.vault`
 
@@ -56,14 +56,6 @@ VAULT_UNSEAL_KEY_3=REPLACE_ME
 ## Step 3 — Unseal Vault
 
 ```bash
-# Pass keys directly as arguments (avoids the TTY prompt problem)
-docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_1"
-docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_2"
-```
-
-Or source `.env.vault` first and use the variables:
-
-```bash
 source .env.vault
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_1"
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_2"
@@ -82,12 +74,6 @@ docker exec walletmvp-vault vault status
 
 ```bash
 source .env.vault
-docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault token lookup
-```
-
-For multiple commands, open a shell in the container:
-
-```bash
 docker exec -it -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault sh
 # You are now inside the container with root Vault access
 # Run vault commands freely, then type 'exit' when done
@@ -124,23 +110,32 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 
 ---
 
-## Step 7 — Configure AppRole authentication
+## Step 7 — Configure AppRole for the Go crypto service
+
+WalletMVP has a single AppRole: `wallet-signer` used exclusively by the Go
+crypto service. NestJS has no AppRole and no Vault credentials.
+
+The policy includes permission to generate new SecretIDs so the Go service
+can rotate its own credentials on every startup automatically.
 
 ```bash
-# Write the scoped policy
-cat <<'EOF' > /tmp/wallet-policy.hcl
+# Write the policy
+cat <<'EOF' > /tmp/wallet-signer-policy.hcl
 path "transit/encrypt/wallet-dek" {
   capabilities = ["update"]
 }
 path "transit/decrypt/wallet-dek" {
   capabilities = ["update"]
 }
+path "auth/approle/role/wallet-signer/secret-id" {
+  capabilities = ["update"]
+}
 EOF
 
-docker cp /tmp/wallet-policy.hcl walletmvp-vault:/tmp/wallet-policy.hcl
+docker cp /tmp/wallet-signer-policy.hcl walletmvp-vault:/tmp/wallet-signer-policy.hcl
 
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
-  vault policy write wallet-api /tmp/wallet-policy.hcl
+  vault policy write wallet-signer /tmp/wallet-signer-policy.hcl
 
 # Enable AppRole auth method
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
@@ -148,8 +143,8 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 
 # Create the role
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
-  vault write auth/approle/role/wallet-api \
-    token_policies="wallet-api" \
+  vault write auth/approle/role/wallet-signer \
+    token_policies="wallet-signer" \
     token_ttl=1h \
     token_max_ttl=24h \
     secret_id_ttl=10m \
@@ -157,19 +152,28 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 
 # Read the RoleID (not secret — safe to store in config)
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
-  vault read auth/approle/role/wallet-api/role-id
+  vault read auth/approle/role/wallet-signer/role-id
 
-# Generate a SecretID (treat like a password)
+# Generate the first SecretID (treat like a password — used once on first Go startup)
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
-  vault write -f auth/approle/role/wallet-api/secret-id
+  vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
-Add the RoleID and SecretID to your app's `.env`:
+Add RoleID and SecretID to the Go crypto service env:
 
 ```bash
+# .env.crypto (for the Go crypto service container)
+VAULT_ADDR=http://vault:8200
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
+CRYPTO_PORT=4000
 ```
+
+> **SecretID self-rotation:** The Go crypto service generates a fresh SecretID
+> immediately after every login and writes it to its env file. The
+> `secret_id_num_uses=1` setting means each SecretID is consumed on use and
+> can never be replayed. You only ever need to manually generate a SecretID
+> here during initial setup — every subsequent restart is handled automatically.
 
 ---
 
@@ -197,10 +201,14 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault secrets lis
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault read transit/keys/wallet-dek
 
 # 4. Policy
-docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault policy read wallet-api
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault policy read wallet-signer
 
-# 5. UI
-# Open http://localhost:8200/ui — log in with root token
+# 5. AppRole
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
+  vault read auth/approle/role/wallet-signer
+
+# 6. Audit log
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault audit list
 ```
 
 Expected state:
@@ -211,14 +219,15 @@ Expected state:
 | `Sealed` | `false` |
 | `transit/` in secrets list | present |
 | `wallet-dek` key exists | present, `exportable: false` |
-| `wallet-api` policy exists | present |
-| AppRole `wallet-api` exists | present |
+| `wallet-signer` policy exists | present |
+| AppRole `wallet-signer` exists | present |
+| Audit log enabled | present |
 
 ---
 
 ## On every restart (sealed state)
 
-Vault comes up sealed after every restart. Run:
+Vault comes up sealed after every container restart. Run:
 
 ```bash
 bash scripts/unseal.sh
@@ -228,7 +237,7 @@ This sources `.env.vault` and submits keys 1 and 2 automatically.
 
 ---
 
-## Key storage reminder
+## Key storage reference
 
 | Key | Where to store |
 |---|---|
@@ -236,5 +245,5 @@ This sources `.env.vault` and submits keys 1 and 2 automatically.
 | Unseal Key 2 | `.env.vault` (dev only) / secondary password manager |
 | Unseal Key 3 | **Not in `.env.vault`** — printed backup or offline storage |
 | Root Token | `.env.vault` (dev only) — never in application code |
-| AppRole RoleID | App `.env` — not secret |
-| AppRole SecretID | App `.env` — treat like a password, rotates on use |
+| AppRole RoleID | `.env.crypto` — not secret |
+| AppRole SecretID | `.env.crypto` — rotated automatically on every Go startup |

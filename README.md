@@ -1,6 +1,6 @@
 # WalletMVP — Self-Hosted Wallet-as-a-Service
 
-A zero-cost, Turnkey-inspired custodial wallet backend built for solo developers.
+A zero-cost, Turnkey-inspired custodial wallet backend built for B2B use.
 Generates HD wallets, protects private keys with envelope encryption, enforces
 signing policies, and handles gas/nonce management — all without AWS or paid
 cloud services.
@@ -10,13 +10,13 @@ cloud services.
 ## What this project is
 
 WalletMVP is a backend service that lets your application create and control
-Ethereum wallets on behalf of users, without ever exposing raw private keys to
-your application code or storing them in plaintext.
+Ethereum wallets on behalf of your B2B customers, without ever exposing raw
+private keys to your application code or storing them in plaintext.
 
-It is modelled on how [Turnkey](https://turnkey.com) works architecturally, but
-replaces their paid cloud infrastructure (AWS Nitro Enclaves, KMS) with
+It is modelled on how [Turnkey](https://turnkey.com) works architecturally,
+replacing their paid cloud infrastructure (AWS Nitro Enclaves, KMS) with
 self-hosted free equivalents (HashiCorp Vault OSS, Docker, a dedicated Go
-signing binary).
+crypto service).
 
 The project is intended as an **MVP and learning reference**, not a
 production-grade replacement for a security-audited WaaS provider.
@@ -30,46 +30,45 @@ production-grade replacement for a security-audited WaaS provider.
 │  Client app                                                     │
 │  Signs every HTTP request with a P-256 API key ("stamp")       │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTPS + stamp header
+                           │ HTTPS + X-Stamp header
 ┌──────────────────────────▼──────────────────────────────────────┐
-│  NestJS API gateway                                             │
-│  Stamp verification · rate limiting · audit log · routing       │
+│  NestJS API (port 3000)                                         │
+│  Stamp verification · policy enforcement · audit log           │
+│  Coordinates wallet CRUD, gas, nonce, broadcast                 │
+│  Never holds key material — only passes ciphertext              │
 └───────┬───────────────────────────────┬─────────────────────────┘
-        │                               │
-┌───────▼───────┐             ┌─────────▼──────────┐
-│ Policy engine │             │  WalletService      │
-│ spend limits  │             │  createWallet       │
-│ allowlists    │             │  deriveAddress      │
-│ time locks    │             │  requestSign        │
-└───────────────┘             └─────────┬───────────┘
-                                        │
-                   ┌────────────────────▼──────────────────────┐
-                   │  HashiCorp Vault (self-hosted, free OSS)  │
-                   │  Transit engine — wraps/unwraps DEKs      │
-                   │  Shamir unseal — 2-of-3 threshold         │
-                   └────────────────────┬──────────────────────┘
-                                        │ plaintext DEK (short-lived)
-                   ┌────────────────────▼──────────────────────┐
-                   │  Go signing binary (isolated process)     │
-                   │  Receives: encrypted seed + DEK via stdin │
-                   │  Decrypts seed → derives child key        │
-                   │  Signs tx hash → zeroes memory → exits    │
-                   └────────────────────┬──────────────────────┘
-                                        │ signature only
-                   ┌────────────────────▼──────────────────────┐
-                   │  GasService (NestJS + Viem)               │
-                   │  estimateGas · manage nonce · assemble tx │
-                   │  broadcast via free RPC (Ankr/Alchemy)    │
-                   └────────────────────┬──────────────────────┘
-                                        │
-                   ┌────────────────────▼──────────────────────┐
-                   │  PostgreSQL                               │
-                   │  encrypted_seed · encrypted_dek           │
-                   │  wallets · users · audit_log · nonces     │
-                   └───────────────────────────────────────────┘
+        │                               │ HTTP (internal network)
+        │                    ┌──────────▼──────────────────────────┐
+        │                    │  Go Crypto Service (internal only)  │
+        │                    │  Single cryptographic boundary      │
+        │                    │  BIP39 · BIP32 · AES-256-GCM        │
+        │                    │  RLP · keccak256 · secp256k1        │
+        │                    │  Vault AppRole (wallet-signer)      │
+        │                    └──────────┬──────────────────────────┘
+        │                               │ AppRole + transit calls
+        │                    ┌──────────▼──────────────────────────┐
+        │                    │  HashiCorp Vault (port 8200)        │
+        │                    │  Transit engine — wraps/unwraps DEKs│
+        │                    │  Shamir unseal — 2-of-3 threshold   │
+        │                    │  Single AppRole: wallet-signer      │
+        │                    └─────────────────────────────────────┘
+        │
+┌───────▼─────────────────────────────────────────────────────────┐
+│  PostgreSQL (port 5432)                                         │
+│  encrypted_seed · encrypted_dek · wallets · audit_log · nonces  │
+│  All key material stored as ciphertext — no plaintext keys      │
+└─────────────────────────────────────────────────────────────────┘
+        │
+┌───────▼─────────────────────────────────────────────────────────┐
+│  External RPC (Ankr / Alchemy free tier)                        │
+│  eth_estimateGas · eth_sendRawTransaction                       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-![Service architecture](./architecture.png)
+**Key principle:** NestJS never holds a Vault token or any plaintext key
+material. The Go crypto service is the only component that touches keys.
+A full database breach alone exposes nothing — an attacker would also need
+to compromise the Go service and Vault simultaneously.
 
 ---
 
@@ -78,15 +77,16 @@ production-grade replacement for a security-audited WaaS provider.
 | Layer | Technology | Cost |
 |---|---|---|
 | API framework | NestJS + TypeScript | Free |
-| Signing binary | Go | Free |
+| Crypto service | Go (long-lived HTTP sidecar) | Free |
 | Key encryption (KEK) | HashiCorp Vault OSS (Docker) | Free |
-| Symmetric encryption | Node.js `crypto` — AES-256-GCM | Free |
-| HD wallet generation | `@scure/bip39` + `@scure/bip32` | Free |
-| Smart contract interaction | Viem | Free |
+| Seed encryption | AES-256-GCM (Go `crypto/aes`) | Free |
+| HD wallet generation | `go-bip39` + `go-bip32` (Go) | Free |
+| Transaction signing | `go-ethereum` (RLP, keccak256, secp256k1) | Free |
+| Smart contract interaction | Viem (NestJS broadcast layer) | Free |
 | Database | PostgreSQL (Docker) | Free |
 | RPC / gas estimation | Ankr free / Alchemy free / Tenderly | Free |
 | Authentication | P-256 API keys + optional WebAuthn | Free |
-| Audit log | PostgreSQL append-only table | Free |
+| Audit log | PostgreSQL append-only table + Vault audit log | Free |
 
 **Total infrastructure cost: $0**
 
@@ -94,44 +94,64 @@ production-grade replacement for a security-audited WaaS provider.
 
 ## Key design decisions
 
-### HD wallets (BIP32/BIP39/BIP44)
+### One seed per organisation (B2B model)
 
-Every user gets a single BIP39 mnemonic seed (24 words, 256-bit entropy).
-From that one seed, an unlimited number of child key pairs can be derived
-deterministically using BIP32 paths (`m/44'/60'/0'/0/N`). The seed is
-generated once, encrypted immediately, and never stored in plaintext.
-Individual child private keys are derived ephemerally at signing time and
-discarded after use.
+Every B2B customer (organisation) gets one BIP39 mnemonic seed (24 words,
+256-bit entropy) generated at onboarding. All wallet addresses for that
+organisation are derived deterministically from this single seed via BIP32
+paths (`m/44'/60'/0'/0/N`). No new entropy is ever needed when adding wallets.
+The seed is generated once, encrypted immediately, and never stored in plaintext.
+
+### Go owns all cryptography
+
+All cryptographic operations happen exclusively in the Go crypto service:
+BIP39 mnemonic generation, AES-256-GCM seed encryption, Vault DEK wrapping,
+BIP32 child key derivation, RLP transaction encoding, keccak256 hashing, and
+secp256k1 signing. NestJS receives only ciphertext and signatures. This means
+plaintext key material never exists in the Node.js process — not even briefly.
 
 ### Envelope encryption with Vault as KEK
 
-Each wallet has its own Data Encryption Key (DEK), a random 32-byte AES-256
-key. The DEK encrypts the seed. The DEK itself is then encrypted by Vault's
-Transit engine (the Key Encryption Key, or KEK), which never leaves Vault.
-Only the ciphertext of both the seed and the DEK is stored in PostgreSQL.
-This means a database breach alone exposes nothing — an attacker would also
-need to compromise Vault.
+Each organisation has a random 32-byte DEK that encrypts their seed. The DEK
+itself is encrypted by Vault's Transit engine (the KEK), which never leaves
+Vault. Only ciphertext is stored in PostgreSQL. A database breach alone
+exposes nothing; an attacker would also need to compromise the Go service
+and Vault simultaneously.
 
-### Isolated signing process
+### Go is a long-lived HTTP sidecar, not a spawned process
 
-Transaction signing does not happen inside the NestJS API process. Instead,
-a dedicated Go binary receives the encrypted seed and plaintext DEK via
-stdin (OS pipe, never written to disk), decrypts the seed, derives the
-child key, signs, zeroes all sensitive memory, and exits. The signature is
-the only thing that ever leaves the signing process.
+The Go crypto service runs as a separate Docker container with a persistent
+HTTP server. NestJS calls it over the internal Docker network per request.
+This avoids per-request process startup overhead (50–200ms) while maintaining
+full process isolation — NestJS cannot directly read Go's memory.
+
+### txHash computed inside Go
+
+The Ethereum transaction hash (RLP encode → keccak256) is computed inside the
+Go crypto service, not in NestJS. This means Go knows exactly what it is
+signing and cannot be tricked into signing malicious data by a bug in NestJS.
+
+### Single Vault AppRole for Go only
+
+NestJS has no Vault credentials. The Go crypto service uses one AppRole
+(`wallet-signer`) scoped only to `transit/encrypt` and `transit/decrypt`.
+The AppRole SecretID is single-use and self-rotating — Go generates the next
+SecretID immediately after each login, so credentials rotate on every restart
+with no manual intervention after initial setup.
 
 ### Stamp-based authentication
 
-Every client request must carry a cryptographic stamp: a P-256 signature
-over the request body and a timestamp, attached as an HTTP header. The API
-verifies this signature before doing anything. This prevents request
-forgery, MITM attacks, and replay attacks — the same mechanism Turnkey uses.
+Every client request carries a P-256 cryptographic stamp: a signature over
+the request body and timestamp attached as an `X-Stamp` header. The API
+verifies this before doing anything. This prevents request forgery, MITM
+attacks, and replay attacks — the same mechanism Turnkey uses.
 
 ### Append-only audit log
 
 Every signing event, policy decision, and wallet creation is written to an
-append-only PostgreSQL table (the `app_role` has no UPDATE or DELETE
-privileges on it). This gives you a tamper-resistant history of all key usage.
+append-only PostgreSQL table. Vault also writes its own audit log of every
+encrypt/decrypt call. Together these give two independent tamper-resistant
+records of all key usage.
 
 ---
 
@@ -141,7 +161,7 @@ privileges on it). This gives you a tamper-resistant history of all key usage.
 |---|---|---|
 | AWS Nitro Enclave (hardware TEE) | Docker process isolation | Kernel/hypervisor can still read Go process memory |
 | Remote attestation (PCR hash) | None | Cannot cryptographically prove what code ran |
-| HSM-backed entropy | `/dev/urandom` (OS) | Not hardware-certified, but cryptographically sound |
+| HSM-backed entropy | `/dev/urandom` (OS CSPRNG) | Not hardware-certified, but cryptographically sound |
 | Quorum Key (hardware-enforced) | Vault Shamir unseal keys | Trusted by software, not hardware |
 | Inter-enclave signed messages | None | No provable chain of trust between services |
 
@@ -155,31 +175,40 @@ infrastructure.
 
 ```
 apps/
-  api/           NestJS app — gateway, auth, wallet CRUD, gas, broadcast
+  api/              NestJS app — gateway, auth, wallet CRUD, gas, broadcast
 libs/
-  vault/         VaultTransitService — wraps Vault HTTP API
-  wallet/        WalletService — BIP39/BIP32, seed lifecycle
-  gas/           GasService — Viem estimateGas, nonce manager
-  policy/        PolicyEngine — rule evaluator (allowlist, limits)
-  auth/          StampVerifier — P-256 stamp verification
+  crypto-client/    HTTP client for Go crypto service (replaces vault lib)
+  wallet/           WalletService — wallet lifecycle, coordinates with Go service
+  gas/              GasService — Viem estimateGas, nonce manager, broadcast
+  policy/           PolicyEngine — rule evaluator (allowlist, limits, time locks)
+  auth/             StampVerifier — P-256 stamp verification
+  db/               DatabaseModule — Drizzle ORM, all 9 tables
 cmd/
-  signer/        Go binary — isolated signing process
-migrations/      PostgreSQL schema migrations
-docker/          Docker Compose for Vault + Postgres dev environment
-docs/            Architecture docs, phase plans, Vault setup guide
+  crypto/           Go crypto service — HTTP server, all cryptographic operations
+docs/
+  ARCHITECTURE.md   Component definitions, communication map, architecture diagram
+  KEY_MANAGEMENT.md Cryptographic decisions, key hierarchy, security properties
+  SEQUENCE_DIAGRAMS.md All flow diagrams (Mermaid)
+  VAULT.md          Vault concepts, runtime behaviour, key rotation
+  VAULT_INIT.md     Step-by-step Vault setup runbook
+  TASKS.md          Phased implementation task list
+  schema.dbml       Database schema reference
+vault/
+  config/           HashiCorp Vault HCL configuration
+scripts/
+  unseal.sh         Automated Vault unseal on restart
+  build-crypto.sh   Build the Go crypto service binary
 ```
 
 ---
 
-## Getting started (overview)
+## Getting started
 
-1. Start Vault and PostgreSQL via Docker Compose
-2. Initialise Vault with Shamir unseal (3 shares, threshold 2)
-3. Enable the Transit secrets engine and create the `wallet-dek` key ring
-4. Configure Vault AppRole for the NestJS app
-5. Run migrations against PostgreSQL
-6. Start the NestJS API (`npm run start:dev`)
-7. Build the Go signing binary (`go build ./cmd/signer`)
-8. Call `POST /wallets` to create your first wallet
+1. Start all containers: `docker compose up -d`
+2. Initialise and unseal Vault (see `docs/VAULT_INIT.md`)
+3. Run database migrations: `pnpm db:push`
+4. Start the NestJS API: `pnpm run start:dev`
+5. The Go crypto service starts automatically as a Docker container
+6. Call `POST /organisations/:id/onboard` to onboard your first organisation
 
-Detailed setup instructions for each step are in the phase task files.
+Detailed instructions for each step are in `docs/VAULT_INIT.md` and `docs/TASKS.md`.

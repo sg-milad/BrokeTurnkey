@@ -1,48 +1,68 @@
-# Phase 2 — Key Management Deep-Dive
+# WalletMVP — Key Management
 
 This document covers every cryptographic decision in the wallet creation and
-key storage pipeline. It explains what each component does, why it was chosen
-over alternatives, and what the security guarantees are.
+signing pipeline. It explains what each component does, why it was chosen,
+and what the security guarantees and limits are.
 
 ---
 
-## Overview: the full key hierarchy
+## The key hierarchy
 
-WalletMVP uses a three-layer key hierarchy. Understanding this hierarchy is
-the foundation for understanding every other decision in this phase.
+WalletMVP uses a three-layer key hierarchy. All cryptographic operations on
+this hierarchy happen exclusively inside the Go crypto service — NestJS never
+touches any key material.
 
 ```
 Layer 0: Vault KEK (Key Encryption Key)
 │
 │  Lives inside HashiCorp Vault Transit engine.
-│  Never leaves Vault. Never touches your application.
+│  Never leaves Vault. The Go crypto service calls Vault to use it,
+│  but the raw key bytes never appear anywhere outside Vault's memory.
 │  Protects: the DEK.
 │
 └──► Layer 1: DEK (Data Encryption Key)
      │
-     │  32 random bytes. One per wallet.
-     │  Exists briefly in application memory during creation and signing.
+     │  32 random bytes. One per organisation seed.
+     │  Exists briefly in Go crypto service memory during creation and signing.
      │  Stored encrypted (by KEK) in Postgres as "vault:v1:..." ciphertext.
      │  Protects: the wallet seed.
      │
-     └──► Layer 2: BIP39 seed (256-bit entropy mnemonic)
+     └──► Layer 2: BIP39 seed (256-bit entropy)
           │
           │  64-byte seed derived from a 24-word mnemonic phrase.
-          │  Exists briefly in Go signer memory during signing only.
+          │  One seed per organisation — all wallets derived from it.
+          │  Exists briefly in Go crypto service memory during signing only.
           │  Stored encrypted (by DEK) in Postgres as AES-256-GCM ciphertext.
           │  Protects: all child private keys.
           │
           └──► Derived child private keys (never stored)
                │
                │  Derived on demand via BIP32 at signing time.
-               │  Exist only in Go signer memory, zeroed immediately after use.
+               │  Exist only in Go crypto service memory, zeroed immediately.
                │
                └──► Ethereum addresses (public, stored in plaintext)
 ```
 
-**The rule:** anything below the dashed line in Postgres is ciphertext.
-The only plaintext data in the database is wallet addresses, which are
-public information anyway.
+**The rule:** NestJS only ever sees ciphertext. The only plaintext values in
+the database are Ethereum addresses, which are public information.
+
+---
+
+## One seed per organisation
+
+WalletMVP follows the same model as Turnkey: one BIP39 mnemonic is generated
+per organisation at onboarding time. Every wallet address that organisation
+ever needs is derived deterministically from that single seed via BIP32 paths:
+
+```
+m/44'/60'/0'/0/0   → first wallet address
+m/44'/60'/0'/0/1   → second wallet address
+m/44'/60'/0'/0/N   → Nth wallet address
+```
+
+No new entropy is needed when adding wallets. The seed is generated once,
+encrypted immediately, and the plaintext never persists beyond the Go crypto
+service's in-memory handling of the creation request.
 
 ---
 
@@ -50,53 +70,35 @@ public information anyway.
 
 ### What BIP39 is
 
-BIP39 is the standard for generating a human-readable mnemonic phrase
-(12 or 24 words) from random entropy, and then converting that phrase into
-a binary seed that can be used to initialise an HD wallet.
-
-The process has two stages:
+BIP39 is the standard for generating a human-readable mnemonic phrase from
+random entropy, and converting it to a binary seed for HD wallet initialisation.
 
 **Stage 1 — Entropy to mnemonic:**
-
-1. Generate N bits of random entropy (128 bits for 12 words, 256 bits for 24 words)
-2. Compute SHA256 of the entropy; take the first N/32 bits as a checksum
+1. Generate 256 bits of random entropy (`crypto/rand` in Go)
+2. Compute SHA256; take the first 8 bits as a checksum
 3. Concatenate entropy + checksum → split into 11-bit groups
-4. Map each 11-bit group to a word in the BIP39 wordlist (2048 words)
-5. Result: the mnemonic phrase
+4. Map each group to a word in the BIP39 wordlist (2048 words)
+5. Result: 24-word mnemonic phrase
 
 **Stage 2 — Mnemonic to seed:**
-
-1. Apply PBKDF2-HMAC-SHA512 with:
-   - Password: the mnemonic phrase (UTF-8 normalised)
-   - Salt: `"mnemonic" + optional_passphrase`
+1. Apply PBKDF2-HMAC-SHA512:
+   - Password: mnemonic phrase (UTF-8 normalised)
+   - Salt: `"mnemonic"` (no passphrase in this implementation)
    - Iterations: 2048
-   - Output length: 64 bytes
+   - Output: 64 bytes
 2. Result: the 64-byte binary seed
 
-### Why 24 words (256-bit), not 12 words (128-bit)
+### Why 24 words (256-bit)
 
-128 bits of entropy is already computationally infeasible to brute-force with
-current hardware. However, 256 bits provides a meaningful margin against
-future advances, costs nothing extra in complexity, and is the standard choice
-for custodial services where you are responsible for other people's funds.
+128 bits (12 words) is computationally infeasible to brute-force today, but
+256 bits provides a margin against future advances and is the standard for
+custodial services where you are responsible for other people's funds.
 
-### Why `@scure/bip39`
+### Where this happens
 
-The `@scure` namespace by paulmillr is formally audited, has minimal
-dependencies, and uses the platform CSPRNG directly. The library was
-initially developed for js-ethereum-cryptography and later extracted.
-Commits are signed with PGP keys. This is the correct choice over bundling
-ethers.js or web3.js just for mnemonic generation.
-
-### What NOT to do with the mnemonic
-
-- Do not return it to the API caller. The caller gets a wallet ID and an
-  Ethereum address. If they want the mnemonic, that is a separate export
-  flow that requires explicit user consent and its own secure channel.
-- Do not log it. Add a lint rule or custom ESLint plugin that flags any
-  `console.log` or logger call containing the word `mnemonic` or `seed`.
-- Do not store it in any variable that persists beyond the `createWallet`
-  function scope.
+Entirely inside the Go crypto service. The mnemonic and seed never appear
+in NestJS, never cross the HTTP boundary, and are zeroed in Go immediately
+after the encrypted seed and first address are produced.
 
 ---
 
@@ -104,65 +106,53 @@ ethers.js or web3.js just for mnemonic generation.
 
 ### Why AES-256-GCM
 
-AES-256-GCM is an authenticated encryption scheme. "Authenticated" means it
-provides both confidentiality and integrity — not only is the ciphertext
-unintelligible without the key, but any tampering with the ciphertext is
-detected at decryption time (the GCM authentication tag verification fails).
-
-This matters for a wallet backend: if an attacker with DB access modified the
-ciphertext, without authentication you might decrypt it to garbage and sign
-garbage transactions. With GCM authentication, decryption fails loudly with
-an authentication error, preventing silent corruption.
+AES-256-GCM provides authenticated encryption — confidentiality and integrity
+together. If an attacker with DB access modifies the ciphertext, decryption
+fails loudly with an authentication error. Without authentication, decryption
+would silently produce garbage, potentially causing a corrupted transaction
+to be signed.
 
 ### Parameters
 
-**Key:** The 32-byte DEK. Must be random, must be unique per wallet. Use
-`crypto.randomBytes(32)` — do not derive the DEK from a password or another key.
+**Key:** The 32-byte DEK. Randomly generated, unique per organisation seed.
 
 **Nonce (IV):** 12 bytes, randomly generated fresh for every encryption.
-This is critical: if you ever use the same nonce with the same key twice,
-GCM's security collapses entirely. 12 bytes of random nonce with a fresh key
-per wallet means collision probability is negligible.
+Using the same nonce twice with the same key completely breaks GCM security.
+Fresh DEK + fresh nonce per org means this never happens.
 
-**Authentication tag:** GCM appends a 16-byte authentication tag to the
-ciphertext. You must store and verify it. Node's `cipher.getAuthTag()` gives
-you these 16 bytes after `cipher.final()`.
+**Auth tag:** 16 bytes appended by GCM. Must be stored and verified on decrypt.
 
-### What to store in Postgres
+### What is stored in Postgres
 
-The `encrypted_seed` column should store a single base64-encoded blob
-containing: `nonce (12 bytes) || ciphertext (64 bytes) || auth_tag (16 bytes)`
-= 92 bytes total, or 124 characters as base64.
+The `encrypted_seed` column stores a base64-encoded blob:
+`nonce (12 bytes) || ciphertext (64 bytes) || auth_tag (16 bytes)` = 92 bytes
+= ~124 characters as base64.
 
-Keeping these together simplifies decryption: you always have everything you
-need in one field. Storing them separately creates more surface area for
-mismatches or partial writes.
+Storing these together means decryption always has everything it needs in one
+field and there is no risk of a nonce/ciphertext mismatch from a partial write.
 
-### Memory lifecycle
-
-The following explains exactly how long the seed exists in plaintext and what
-zeroes it:
+### Memory lifecycle inside Go crypto service
 
 ```
 createWallet():
-  mnemonic = generateMnemonic()    ← plaintext mnemonic, string in heap
-  seed = mnemonicToSeed(mnemonic)  ← 64-byte Buffer
-  dek = randomBytes(32)            ← 32-byte Buffer
-  encryptedSeed = encrypt(seed, dek)
-  encryptedDek = await vault.encryptDek(dek)
-  dek.fill(0)                      ← DEK zeroed ✓
-  address = deriveAddress(seed)    ← seed used here
-  seed.fill(0)                     ← seed zeroed ✓
-  return { walletId, address }
-  ← mnemonic string is now unreferenced, eligible for GC
-    (cannot be zeroed — JS strings are immutable)
+  entropy  = crypto/rand 32 bytes
+  mnemonic = bip39.NewMnemonic(entropy)   ← string in Go heap
+  seed     = bip39.MnemonicToByteArray()  ← 64-byte slice
+  dek      = crypto/rand 32 bytes         ← 32-byte slice
+  nonce    = crypto/rand 12 bytes
+  encryptedSeed = aesGCMEncrypt(seed, dek, nonce)
+  encryptedDek  = vault.Transit.Encrypt(dek)
+  zero(dek)                               ← DEK zeroed ✓
+  address  = bip32Derive(seed, "m/44'/60'/0'/0/0") → pubkey → address
+  zero(seed)                              ← seed zeroed ✓
+  zero(childPrivKey)                      ← child key zeroed ✓
+  return { encryptedSeed, nonce, encryptedDek, address }
+  ← mnemonic string goes out of scope, GC eligible
 ```
 
-The mnemonic string cannot be explicitly zeroed because JavaScript strings
-are immutable. This is a known limitation of doing cryptography in a
-garbage-collected language. Mitigation: the mnemonic exists for the shortest
-possible time (only during the `createWallet` call), and the converted seed
-Buffer is explicitly zeroed.
+Go strings are immutable (same limitation as JS), so the mnemonic string
+cannot be explicitly zeroed. Mitigation: it exists only for the duration of
+this function call and is never written to disk or logs.
 
 ---
 
@@ -170,209 +160,113 @@ Buffer is explicitly zeroed.
 
 ### What BIP32 does
 
-BIP32 specifies how to take a 64-byte seed and produce a tree of deterministic
-child key pairs. The tree is defined by a derivation path. Starting from the
-root key (derived from the seed), you derive child keys by index.
+BIP32 takes a 64-byte seed and produces a deterministic tree of child key
+pairs, addressed by a derivation path. The same seed + same path always
+produces the same child key.
 
-**Hardened vs. non-hardened derivation:**
+### The BIP44 path
 
-- Indices 0–2³¹−1: non-hardened. Child public keys can be derived from the
-  parent extended public key alone. This is a privacy/security risk if the
-  parent xpub is leaked.
-- Indices 2³¹ and above (written with `'`): hardened. Child public keys can
-  only be derived if you have the parent private key. Much safer.
+`m/44'/60'/0'/0/N`
 
-In the BIP44 path `m/44'/60'/0'/0/N`:
+| Segment | Value | Meaning |
+|---|---|---|
+| `44'` | BIP44 purpose | Hardened |
+| `60'` | Ethereum coin type | Hardened |
+| `0'` | Account index | Hardened |
+| `0` | External chain | Non-hardened |
+| `N` | Address index | Non-hardened, increments per wallet |
 
-- `44'`: BIP44 purpose (hardened)
-- `60'`: Ethereum coin type (hardened)
-- `0'`: account index (hardened)
-- `0`: external chain (non-hardened — this is the public-facing address chain)
-- `N`: address index (non-hardened)
-
-The first three levels are hardened, which means the extended public key at
-the `m/44'/60'/0'/0` level cannot be used to reveal the root seed.
+The first three levels are hardened, meaning the extended public key at
+`m/44'/60'/0'/0` cannot be used to reveal the root seed even if leaked.
 
 ### Why child keys are never stored
 
-Storing child private keys would mean you have more secrets to protect.
-Instead, you store only the encrypted seed. At signing time, you decrypt the
-seed and derive the child key in memory. The derivation is deterministic and
-fast (microseconds), so there is no performance reason to cache child keys.
+Storing child private keys multiplies the number of secrets to protect.
+Instead, the encrypted seed is the single protected artifact per organisation.
+At signing time, the child key is derived in Go memory in microseconds, used
+immediately, and zeroed. The derivation is deterministic and fast — there is
+no performance reason to cache child keys.
 
-This design means your entire key hierarchy for a wallet is protected by one
-encrypted blob. Rotating your encryption (re-encrypting the seed with a new
-DEK) protects all past and future child keys for that wallet simultaneously.
+### Go library
 
-### Library: `@scure/bip32`
-
-Formally audited, minimal, uses the same noble cryptography primitives as the
-rest of the scure ecosystem. The `chainCode` property of the HDKey object is
-essentially a private part of the secret master key — it must be guarded with
-the same care as the private key itself. The Go signing binary uses
-`tyler-smith/go-bip32` for the equivalent operation.
+The Go crypto service uses `tyler-smith/go-bip32` for BIP32 and
+`tyler-smith/go-bip39` for BIP39. Both are standard in the Go Ethereum
+ecosystem.
 
 ---
 
-## Per-wallet DEK: why this matters
+## Per-organisation DEK
 
-### The argument for a single global DEK
+One DEK per organisation seed (not one global DEK for all organisations).
 
-One DEK for all wallets would be simpler. One Vault entry, one encryption key
-in memory. You might be tempted by this for an MVP.
+**Why not one global DEK:**
+If a single global DEK is compromised, every encrypted seed in the database
+is immediately decryptable — all organisations are exposed simultaneously.
 
-### Why per-wallet DEK is non-negotiable
+**With per-organisation DEKs:**
+A compromised DEK exposes only that organisation's seed. Rotating the
+compromised DEK and re-encrypting that organisation's seed contains the damage.
 
-Consider what happens when a DEK is compromised:
+**DEK and Vault key ring distinction:**
 
-- **Single global DEK:** Every encrypted seed in your database is immediately
-  decryptable. One breach exposes every user's wallet.
-- **Per-wallet DEK:** Only the wallets whose DEKs were obtained are exposed.
-  If you rotate the compromised DEK and re-encrypt that wallet's seed, the
-  damage is contained.
+- Transit key ring (`wallet-dek`): the KEK. One key ring, managed by Vault,
+  versioned. Shared across all organisations.
+- DEK: 32 random bytes generated by Go per organisation, encrypted BY the
+  key ring. Stored as `"vault:v1:..."` ciphertext in Postgres.
 
-The cost is trivial: one extra row per wallet in Vault's keyring metadata and
-one extra column in your wallets table. The blast radius reduction is enormous.
-This is the same reasoning Turnkey uses for per-organisation key material.
-
-### DEK naming in Vault
-
-All wallet DEKs are encrypted under the same Transit key ring (`wallet-dek`).
-The DEK itself is the random bytes; Vault's key ring wraps it. You do not
-create one Transit key per wallet — you have one Transit key ring and encrypt
-many different DEKs under it.
-
-The distinction:
-
-- Transit key ring (`wallet-dek`): the KEK. One key, managed by Vault, versioned.
-- DEK: 32 random bytes generated by your app, encrypted BY the key ring.
-  One per wallet. Stored as ciphertext in Postgres.
+You do not create one Transit key ring per organisation. You have one key
+ring and encrypt many different DEKs under it.
 
 ---
 
-## Address derivation and the `addresses` table
+## Transaction hashing: Go owns it entirely
 
-### What to cache
+The Ethereum transaction hash is computed by:
+1. RLP-encoding the transaction fields (nonce, gasLimit, maxFeePerGas,
+   maxPriorityFeePerGas, to, value, data, chainId, etc.)
+2. keccak256-hashing the RLP-encoded bytes
 
-Ethereum addresses are public information — they are not sensitive. After
-you derive an address for the first time (from the plaintext seed during wallet
-creation), cache it in the `addresses` table alongside the derivation index.
+This computation happens inside the Go crypto service, not in NestJS.
 
-Every subsequent lookup for "what is the address at index 3 for wallet X?"
-reads from the cache without decrypting anything. This is both faster and
-safer than decrypting the seed on every address lookup.
+**Why Go owns this:**
+If NestJS computed the hash and passed it to Go, Go would be blindly signing
+whatever bytes it received. A bug or crafted input in NestJS could cause Go
+to sign something unintended, with no way for Go to detect this. By receiving
+raw transaction fields and computing the hash itself, Go controls the entire
+signing surface and knows exactly what it is signing.
 
-### EIP-55 checksum addresses
-
-Always store and return addresses in EIP-55 format (mixed-case checksum
-encoding). This is a checksum baked into the capitalisation of the hex string.
-Viem's `privateKeyToAddress` returns EIP-55 format by default. Do not
-lowercase or uppercase addresses when storing them.
-
----
-
-One mnemonic per organization (your B2B customer), generated once when they onboard. Every wallet/address they ever need is derived from that single seed using BIP32 paths — m/44'/60'/0'/0/0, m/44'/60'/0'/0/1, m/44'/60'/0'/0/N — no new entropy needed, ever.
-
-## Wallet creation: full sequence
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as NestJS API
-    participant WS as WalletService
-    participant VS as VaultService
-    participant V as HashiCorp Vault
-    participant DB as PostgreSQL
-
-    C->>API: POST /wallets (X-Stamp header)
-    API->>API: Verify stamp signature
-    API->>WS: createWallet(userId)
-
-    note over WS: Key generation — all in memory
-    WS->>WS: randomBytes(32) → entropy
-    WS->>WS: entropy → 24-word BIP39 mnemonic
-    WS->>WS: mnemonic + PBKDF2 → 64-byte seed
-    WS->>WS: randomBytes(32) → DEK
-    WS->>WS: randomBytes(12) → GCM nonce
-    WS->>WS: AES-256-GCM encrypt(seed, DEK, nonce) → encryptedSeed
-
-    note over WS,V: DEK wrapping
-    WS->>VS: encryptDek(DEK)
-    VS->>V: POST /v1/transit/encrypt/wallet-dek<br/>{plaintext: base64(DEK)}
-    V-->>VS: {ciphertext: "vault:v1:..."}
-    VS-->>WS: "vault:v1:..."
-    WS->>WS: DEK.fill(0) — zero raw DEK immediately
-
-    note over WS: Address derivation (seed still in memory)
-    WS->>WS: BIP32 derive m/44'/60'/0'/0/0 from seed
-    WS->>WS: privateKey → EIP-55 Ethereum address
-    WS->>WS: child.privateKey.fill(0) — zero child key
-    WS->>WS: seed.fill(0) — zero seed
-
-    note over WS,DB: Persistence — only ciphertext
-    WS->>DB: INSERT wallets(encryptedSeed, encryptedDek, seedNonce, userId)
-    DB-->>WS: walletId (UUID)
-    WS->>DB: INSERT addresses(walletId, index=0, address)
-    WS->>DB: INSERT audit_log(action='create_wallet', userId, walletId)
-    WS-->>API: {walletId, address}
-    API-->>C: {walletId, address}
-
-    note over WS: mnemonic string now out of scope — GC eligible
-```
+NestJS sends `{ to, value, data, chainId, nonce, gasLimit, maxFeePerGas,
+maxPriorityFeePerGas }` to Go. Go produces `{ signature, txHash }`.
 
 ---
 
-## Decryption path: how the seed is recovered for signing
+## Address caching
 
-This sequence shows only the key management portion of signing. The full
-signing sequence (including gas estimation and broadcast) is in TASKS.md.
+Ethereum addresses are public information — not sensitive. After the Go
+service derives an address for the first time during wallet creation or
+derivation, NestJS caches it in the `wallets` table alongside the derivation
+path and index.
 
-```mermaid
-sequenceDiagram
-    participant NS as NestJS SigningService
-    participant VS as VaultService
-    participant V as HashiCorp Vault
-    participant DB as PostgreSQL
-    participant GO as Go Signer Binary
+Every subsequent address lookup reads from the cache. No seed decryption
+required for address queries.
 
-    NS->>DB: SELECT encrypted_seed, encrypted_dek, seed_nonce FROM wallets WHERE id=?
-    DB-->>NS: wallet row
-
-    NS->>VS: decryptDek(wallet.encryptedDek)
-    VS->>V: POST /v1/transit/decrypt/wallet-dek<br/>{ciphertext: "vault:v1:..."}
-    V-->>VS: {plaintext: base64(DEK)}
-    VS-->>NS: Buffer(32 bytes) — plaintext DEK
-
-    note over NS,GO: Spawn isolated Go process
-    NS->>GO: stdin: JSON({encryptedSeed, seedNonce, plaintextDek, derivPath, txHash, chainId})
-    NS->>NS: plaintextDek.fill(0) — zero DEK in NestJS memory
-
-    note over GO: All sensitive operations inside Go process
-    GO->>GO: Decode DEK from base64
-    GO->>GO: AES-256-GCM decrypt(encryptedSeed, DEK, nonce) → seed
-    GO->>GO: DEK bytes zeroed
-    GO->>GO: BIP32 derive child key from seed at derivPath
-    GO->>GO: seed bytes zeroed
-    GO->>GO: Sign txHash with child private key → signature (r,s,v)
-    GO->>GO: child private key bytes zeroed
-    GO->>NS: stdout: JSON({signature: "0x..."})
-    GO->>GO: Process exits — all memory released
-
-    NS->>NS: Assemble signed transaction
-    NS->>NS: Write audit_log entry
-```
+Always store and return addresses in EIP-55 checksum format (mixed-case hex).
+Go's `go-ethereum` crypto package returns EIP-55 format from public key
+derivation. Do not lowercase addresses when storing them.
 
 ---
 
-## Security properties and their limits
+## Security properties
 
-| Property                         | Achieved | How                                    | Limit                                     |
-| -------------------------------- | -------- | -------------------------------------- | ----------------------------------------- |
-| Seed never in DB plaintext       | ✓        | AES-256-GCM encryption                 | Compromised DEK + DB = exposed            |
-| DEK never in DB plaintext        | ✓        | Vault Transit wrapping                 | Compromised Vault = exposed               |
-| KEK never in app memory          | ✓        | Vault handles it internally            | Compromised Vault host = exposed          |
-| Private key never in API process | ✓        | Go binary isolation                    | Go process memory dump exposes it briefly |
-| Key zeroed after use             | ✓        | Explicit Buffer.fill(0) / Go zero loop | GC may retain string data                 |
-| Audit trail of all decryptions   | ✓        | Vault audit log + app audit_log        | Log files must be protected               |
-| Per-wallet blast radius          | ✓        | One DEK per wallet                     | Compromising Vault exposes all DEKs       |
-| Key rotation                     | ✓        | Vault key versioning + rewrap job      | Requires a background job to complete     |
+| Property | Achieved | How | Limit |
+|---|---|---|---|
+| Seed never in DB plaintext | ✓ | AES-256-GCM encryption in Go | Compromised DEK + DB = exposed |
+| DEK never in DB plaintext | ✓ | Vault Transit wrapping | Compromised Vault = exposed |
+| KEK never in application memory | ✓ | Vault handles it internally | Compromised Vault host = exposed |
+| Private key never in NestJS process | ✓ | Go crypto service isolation | Go process memory dump (brief window) |
+| txHash computed by signer | ✓ | Go RLP + keccak256 | Go must be trusted |
+| NestJS has zero Vault access | ✓ | Single AppRole for Go only | NestJS process has no crypto fallback |
+| Key material zeroed after use | ✓ | Explicit Go zero loops | Mnemonic string (GC, not zeroable) |
+| Audit trail of all decryptions | ✓ | Vault audit log + app audit_log | Log files must be protected |
+| Per-org blast radius | ✓ | One DEK per organisation | Compromising Vault exposes all DEKs |
+| Key rotation | ✓ | Vault key versioning + rewrap job | Requires background job to complete |
