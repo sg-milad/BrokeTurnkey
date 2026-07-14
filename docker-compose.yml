@@ -4,7 +4,7 @@ services:
     container_name: walletmvp-vault
     restart: unless-stopped
     ports:
-      - "8200:8200"
+      - "8200:8200"          # exposed for local UI and unseal ceremony only
     environment:
       VAULT_ADDR: "http://0.0.0.0:8200"
     volumes:
@@ -15,19 +15,38 @@ services:
       - IPC_LOCK
       - CAP_SETFCAP
     command: vault server -config=/vault/config/vault.hcl
+    networks:
+      - walletmvp-network
 
   postgres:
     image: postgres:16
     container_name: walletmvp-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5432:5432"          # exposed for local tooling (drizzle-kit, psql)
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: walletmvp
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - walletmvp-network
+
+  crypto:
+    build:
+      context: .
+      dockerfile: Dockerfile.crypto
+      target: production
+    container_name: walletmvp-crypto
+    restart: unless-stopped
+    # No ports exposed to host — reachable only on walletmvp-network
+    env_file:
+      - .env.crypto
+    depends_on:
+      - vault
+    networks:
+      - walletmvp-network
 
   api:
     build:
@@ -41,32 +60,18 @@ services:
     env_file:
       - .env
     volumes:
-      # Mount source for hot-reload in development
       - .:/app
       - /app/node_modules
     depends_on:
-      - vault
       - postgres
+      - crypto
     command: pnpm run start:dev
+    networks:
+      - walletmvp-network
 
-  signer-build:
-    # One-shot container: builds the Go binary and exits.
-    # The binary is written to ./bin/signer on the host via the volume mount.
-    # Run with: docker compose run --rm signer-build
-    image: golang:1.23-alpine
-    container_name: walletmvp-signer-build
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: >
-      sh -c "
-        apk add --no-cache gcc musl-dev &&
-        go build -o bin/signer ./cmd/signer
-      "
-    profiles:
-      # Not started by default with `docker compose up`.
-      # Run explicitly: docker compose run --rm signer-build
-      - build
+networks:
+  walletmvp-network:
+    driver: bridge
 
 volumes:
   vault-data:
