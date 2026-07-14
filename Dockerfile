@@ -6,12 +6,6 @@ WORKDIR /app
 # ---- deps ----
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY libs/vault/package.json ./libs/vault/
-COPY libs/wallet/package.json ./libs/wallet/
-COPY libs/gas/package.json ./libs/gas/
-COPY libs/policy/package.json ./libs/policy/
-COPY libs/auth/package.json ./libs/auth/
 RUN pnpm install --frozen-lockfile
 
 # ---- development (used by docker compose) ----
