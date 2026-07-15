@@ -65,7 +65,7 @@ services:
     depends_on:
       - postgres
       - crypto
-    command: pnpm run start:dev
+    command: pnpm run start:dev api
     networks:
       - walletmvp-network
 
