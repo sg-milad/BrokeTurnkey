@@ -13,6 +13,7 @@ require (
 	github.com/ethereum/c-kzg-4844/v2 v2.1.6 // indirect
 	github.com/ethereum/go-ethereum v1.17.4 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
+	github.com/joho/godotenv v1.5.1
 	github.com/supranational/blst v0.3.16 // indirect
 	github.com/tyler-smith/go-bip32 v1.0.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect

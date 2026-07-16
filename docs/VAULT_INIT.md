@@ -115,8 +115,7 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 WalletMVP has a single AppRole: `wallet-signer` used exclusively by the Go
 crypto service. NestJS has no AppRole and no Vault credentials.
 
-The policy includes permission to generate new SecretIDs so the Go service
-can rotate its own credentials on every startup automatically.
+The policy includes permission to generate new SecretIDs for manual rotation.
 
 ```bash
 # Write the policy
@@ -147,14 +146,14 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
     token_policies="wallet-signer" \
     token_ttl=1h \
     token_max_ttl=24h \
-    secret_id_ttl=10m \
-    secret_id_num_uses=1
+    secret_id_ttl=720h \
+    secret_id_num_uses=0
 
 # Read the RoleID (not secret — safe to store in config)
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault read auth/approle/role/wallet-signer/role-id
 
-# Generate the first SecretID (treat like a password — used once on first Go startup)
+# Generate the first SecretID (treat like a password)
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
@@ -169,11 +168,9 @@ VAULT_SECRET_ID=REPLACE_ME
 CRYPTO_PORT=4000
 ```
 
-> **SecretID self-rotation:** The Go crypto service generates a fresh SecretID
-> immediately after every login and writes it to its env file. The
-> `secret_id_num_uses=1` setting means each SecretID is consumed on use and
-> can never be replayed. You only ever need to manually generate a SecretID
-> here during initial setup — every subsequent restart is handled automatically.
+> **SecretID rotation:** The Go crypto service no longer self-rotates the SecretID.
+> The SecretID is valid for 30 days (`720h`) and has unlimited uses (`0`) within
+> that window. You must rotate it manually every 30 days (see instructions below).
 
 ---
 
@@ -213,15 +210,15 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault vault audit list
 
 Expected state:
 
-| Check | Expected value |
-|---|---|
-| `Initialized` | `true` |
-| `Sealed` | `false` |
-| `transit/` in secrets list | present |
-| `wallet-dek` key exists | present, `exportable: false` |
-| `wallet-signer` policy exists | present |
-| AppRole `wallet-signer` exists | present |
-| Audit log enabled | present |
+| Check                          | Expected value               |
+| ------------------------------ | ---------------------------- |
+| `Initialized`                  | `true`                       |
+| `Sealed`                       | `false`                      |
+| `transit/` in secrets list     | present                      |
+| `wallet-dek` key exists        | present, `exportable: false` |
+| `wallet-signer` policy exists  | present                      |
+| AppRole `wallet-signer` exists | present                      |
+| Audit log enabled              | present                      |
 
 ---
 
@@ -237,13 +234,28 @@ This sources `.env.vault` and submits keys 1 and 2 automatically.
 
 ---
 
+## SecretID Rotation (Every 30 days)
+
+The AppRole SecretID must be rotated manually before its 30-day TTL expires.
+To rotate it, generate a new one and update the Go service:
+
+```bash
+source .env.vault
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
+  vault write -f auth/approle/role/wallet-signer/secret-id
+```
+
+Then update `VAULT_SECRET_ID` in `.env.crypto` and restart the crypto container.
+
+---
+
 ## Key storage reference
 
-| Key | Where to store |
-|---|---|
-| Unseal Key 1 | `.env.vault` (dev only) / primary password manager |
-| Unseal Key 2 | `.env.vault` (dev only) / secondary password manager |
-| Unseal Key 3 | **Not in `.env.vault`** — printed backup or offline storage |
-| Root Token | `.env.vault` (dev only) — never in application code |
-| AppRole RoleID | `.env.crypto` — not secret |
-| AppRole SecretID | `.env.crypto` — rotated automatically on every Go startup |
+| Key              | Where to store                                              |
+| ---------------- | ----------------------------------------------------------- |
+| Unseal Key 1     | `.env.vault` (dev only) / primary password manager          |
+| Unseal Key 2     | `.env.vault` (dev only) / secondary password manager        |
+| Unseal Key 3     | **Not in `.env.vault`** — printed backup or offline storage |
+| Root Token       | `.env.vault` (dev only) — never in application code         |
+| AppRole RoleID   | `.env.crypto` — not secret                                  |
+| AppRole SecretID | `.env.crypto` — rotate manually every 30 days               |
