@@ -61,12 +61,15 @@ func main() {
 		fmt.Fprintln(w, "OK")
 	})
 
+	// Cryptographic boundary endpoints
+	mux.HandleFunc("/wallet/create", HandleCreateWallet)
+	mux.HandleFunc("/wallet/derive", HandleDeriveWallet)
+	mux.HandleFunc("/wallet/sign", HandleSignTx)
+
+	// Fallback for undefined routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, `{"error":"handler not yet implemented"}`)
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, `{"error":"route not found"}`)
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%s", cfg.CryptoPort)
