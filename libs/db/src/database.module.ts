@@ -1,6 +1,12 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createDrizzleClient, DrizzleClient } from './db';
+import {
+  OrganisationSeedRepository,
+  WalletRepository,
+  SigningRequestRepository,
+  AuditLogRepository,
+} from './repositories';
 
 export const DRIZZLE_CLIENT = Symbol('DRIZZLE_CLIENT');
 
@@ -15,7 +21,17 @@ export const DRIZZLE_CLIENT = Symbol('DRIZZLE_CLIENT');
         return createDrizzleClient(url);
       },
     },
+    OrganisationSeedRepository,
+    WalletRepository,
+    SigningRequestRepository,
+    AuditLogRepository,
   ],
-  exports: [DRIZZLE_CLIENT],
+  exports: [
+    DRIZZLE_CLIENT,
+    OrganisationSeedRepository,
+    WalletRepository,
+    SigningRequestRepository,
+    AuditLogRepository,
+  ],
 })
-export class DatabaseModule {}
+export class DatabaseModule { }
