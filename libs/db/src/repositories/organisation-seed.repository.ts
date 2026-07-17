@@ -1,10 +1,9 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { IOrganisationSeedRepository } from './interfaces';
-import { DRIZZLE_CLIENT } from '../database.module';
 import type { DrizzleClient } from '../db';
 import { OrganisationSeed, organisation_seeds, NewOrganisationSeed } from '../schema';
-
+import { DRIZZLE_CLIENT } from '../constants';
 @Injectable()
 export class OrganisationSeedRepository implements IOrganisationSeedRepository {
     constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }

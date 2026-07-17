@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createDrizzleClient, DrizzleClient } from './db';
+import { DRIZZLE_CLIENT } from './constants';
 import {
   OrganisationSeedRepository,
   WalletRepository,
@@ -8,7 +9,6 @@ import {
   AuditLogRepository,
 } from './repositories';
 
-export const DRIZZLE_CLIENT = Symbol('DRIZZLE_CLIENT');
 
 @Global()
 @Module({

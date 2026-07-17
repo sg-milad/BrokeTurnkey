@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import type { DrizzleClient } from '../db';
-import { DRIZZLE_CLIENT } from '../database.module';
+import { DRIZZLE_CLIENT } from '../constants';
 import { IAuditLogRepository } from '../repositories/interfaces/audit-log.repository.interface';
 import { AuditLog, NewAuditLog, audit_log } from '../schema/audit-log';
 

@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import type { DrizzleClient } from '../db';
-import { DRIZZLE_CLIENT } from '../database.module';
+import { DRIZZLE_CLIENT } from '../constants';
 import { IWalletRepository } from '../repositories/interfaces/wallet.repository.interface';
 import { Wallet, NewWallet, wallets } from '../schema/wallets';
 import { eq, count } from 'drizzle-orm';
