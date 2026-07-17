@@ -4,6 +4,7 @@ import { ApiService } from './api.service';
 import { DatabaseModule } from '@app/db';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig } from './config/app.config';
+import { WalletModule } from '@app/wallet';
 
 @Module({
   imports: [
@@ -11,7 +12,7 @@ import { appConfig } from './config/app.config';
       isGlobal: true,
       load: [appConfig],
       envFilePath: '.env',
-    }), DatabaseModule],
+    }), DatabaseModule, WalletModule],
   controllers: [ApiController],
   providers: [ApiService],
 })
