@@ -55,13 +55,13 @@
         "tsConfigPath": "libs/policy/tsconfig.lib.json"
       }
     },
-    "vault": {
+    "crypto-client": {
       "type": "library",
-      "root": "libs/vault",
+      "root": "libs/crypto-client",
       "entryFile": "index",
-      "sourceRoot": "libs/vault/src",
+      "sourceRoot": "libs/crypto-client/src",
       "compilerOptions": {
-        "tsConfigPath": "libs/vault/tsconfig.lib.json"
+        "tsConfigPath": "libs/crypto-client/tsconfig.lib.json"
       }
     },
     "wallet": {

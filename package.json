@@ -86,7 +86,7 @@
       "^@app/db(|/.*)$": "<rootDir>/libs/db/src/$1",
       "^@app/gas(|/.*)$": "<rootDir>/libs/gas/src/$1",
       "^@app/policy(|/.*)$": "<rootDir>/libs/policy/src/$1",
-      "^@app/vault(|/.*)$": "<rootDir>/libs/vault/src/$1",
+      "^@app/crypto-client(|/.*)$": "<rootDir>/libs/crypto-client/src/$1",
       "^@app/wallet(|/.*)$": "<rootDir>/libs/wallet/src/$1"
     }
   }

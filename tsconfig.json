@@ -30,8 +30,8 @@
       "@app/gas/*": ["libs/gas/src/*"],
       "@app/policy": ["libs/policy/src"],
       "@app/policy/*": ["libs/policy/src/*"],
-      "@app/vault": ["libs/vault/src"],
-      "@app/vault/*": ["libs/vault/src/*"],
+      "@app/crypto-client": ["libs/crypto-client/src"],
+      "@app/crypto-client/*": ["libs/crypto-client/src/*"],
       "@app/wallet": ["libs/wallet/src"],
       "@app/wallet/*": ["libs/wallet/src/*"]
     }
