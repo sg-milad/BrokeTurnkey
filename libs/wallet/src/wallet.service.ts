@@ -19,7 +19,11 @@ export class WalletService {
     ) { }
 
     async onboardOrganisation(orgId: string) {
-        const { encryptedSeed, seedNonce, encryptedDek, firstAddress } = await this.cryptoClient.createWallet(orgId);
+        const existing = await this.orgSeedRepo.findByOrgId(orgId);
+        if (existing) throw new Error('Organisation already onboarded');
+
+        const { encryptedSeed, seedNonce, encryptedDek, firstAddress } =
+            await this.cryptoClient.createWallet(orgId);
 
         await this.orgSeedRepo.create({
             org_id: orgId,
@@ -28,10 +32,10 @@ export class WalletService {
             encrypted_dek: encryptedDek,
         });
 
-        //TODO: use uuid generator for this part
+        // First wallet is org-owned (no user). user_id is intentionally null.
         await this.walletRepo.create({
             org_id: orgId,
-            user_id: "00000000-0000-0000-0000-000000000000", // Need user context, placeholder for now
+            user_id: null,
             address: firstAddress,
             derivation_path: "m/44'/60'/0'/0/0",
         });
@@ -49,6 +53,9 @@ export class WalletService {
         const seedRow = await this.orgSeedRepo.findByOrgId(orgId);
         if (!seedRow) throw new Error('Org seed not found');
 
+        // NOTE: countByOrgId has a race condition under concurrent requests for
+        // the same org. The unique index on (org_id, derivation_path) will catch
+        // collisions and throw — handle that at the controller level and retry once.
         const derivIndex = await this.walletRepo.countByOrgId(orgId);
 
         const { address, derivationPath } = await this.cryptoClient.deriveWallet(
@@ -84,6 +91,9 @@ export class WalletService {
         const wallet = await this.walletRepo.findById(walletId);
         if (!wallet) throw new Error('Wallet not found');
 
+        // Guard: ensure the wallet actually belongs to this org
+        if (wallet.org_id !== orgId) throw new Error('Wallet does not belong to this org');
+
         const { signature, txHash } = await this.cryptoClient.signTransaction(
             seedRow.encrypted_seed,
             seedRow.seed_nonce,
@@ -92,7 +102,7 @@ export class WalletService {
             txFields,
         );
 
-        const request = await this.signingRequestRepo.create({
+        const signingRequest = await this.signingRequestRepo.create({
             org_id: orgId,
             wallet_id: walletId,
             tx_hash: txHash,
@@ -106,7 +116,7 @@ export class WalletService {
             wallet_id: walletId,
             event: 'tx_signed',
             status: 'success',
-            metadata: { txHash, request },
+            metadata: { txHash, signingRequestId: signingRequest.id },
         });
 
         return { signature, txHash };
