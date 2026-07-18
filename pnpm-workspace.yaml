@@ -3,6 +3,7 @@ packages:
   - 'libs/*'
 
 allowBuilds:
+  '@scarf/scarf': false
   esbuild: false
   unrs-resolver: false
 

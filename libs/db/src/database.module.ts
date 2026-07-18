@@ -7,6 +7,7 @@ import {
   WalletRepository,
   SigningRequestRepository,
   AuditLogRepository,
+  OrganisationRepository,
 } from './repositories';
 
 
@@ -25,6 +26,7 @@ import {
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
+    OrganisationRepository
   ],
   exports: [
     DRIZZLE_CLIENT,
@@ -32,6 +34,7 @@ import {
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
+    OrganisationRepository
   ],
 })
 export class DatabaseModule { }
