@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { appConfig } from './config/app.config';
 import { WalletModule } from '@app/wallet';
 import { OrganisationsModule } from './organisations/organisations.module';
+import { WalletsModule } from './wallets/wallets.module';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { OrganisationsModule } from './organisations/organisations.module';
       isGlobal: true,
       load: [appConfig],
       envFilePath: '.env',
-    }), DatabaseModule, WalletModule, OrganisationsModule],
+    }), DatabaseModule, WalletModule, OrganisationsModule, WalletsModule],
   controllers: [ApiController],
   providers: [ApiService],
 })

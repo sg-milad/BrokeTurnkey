@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, HttpCode } from '@nestjs/common';
 import { OrganisationsService } from './organisations.service';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
 import { type Organisation } from '@app/db/schema/organisations';
@@ -29,5 +29,13 @@ export class OrganisationsController {
     @ApiResponse({ status: 200, description: 'The organisation has been found.', type: OrganisationDto })
     async findBySlug(@Param('slug') slug: string): Promise<Organisation | undefined> {
         return this.organisationsService.findBySlug(slug);
+    }
+
+    @Post(':id/onboard')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Onboard an organisation (create seed + first wallet)' })
+    @ApiResponse({ status: 200, description: 'Organisation onboarded successfully.' })
+    async onboard(@Param('id') id: string) {
+        return this.organisationsService.onboard(id);
     }
 }
