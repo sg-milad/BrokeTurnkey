@@ -5,8 +5,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type cryptoConfig struct {
@@ -17,10 +15,6 @@ type cryptoConfig struct {
 }
 
 func loadConfig() *cryptoConfig {
-	if err := godotenv.Load(".env.crypto"); err != nil {
-		log.Fatalf("Error loading .env.crypto file: %v", err)
-	}
-
 	cfg := &cryptoConfig{
 		VaultAddr:  os.Getenv("VAULT_ADDR"),
 		RoleID:     os.Getenv("VAULT_ROLE_ID"),
@@ -33,7 +27,7 @@ func loadConfig() *cryptoConfig {
 	}
 
 	if cfg.VaultAddr == "" || cfg.RoleID == "" || cfg.SecretID == "" {
-		log.Fatalf("Missing required environment variables in .env.crypto")
+		log.Fatalf("Missing required environment variables (VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID)")
 	}
 
 	return cfg
@@ -47,6 +41,9 @@ func main() {
 	log.Printf("VAULT_ROLE_ID: %s", cfg.RoleID)
 	log.Printf("VAULT_SECRET_ID: [REDACTED]")
 	log.Printf("CRYPTO_PORT: %s", cfg.CryptoPort)
+
+	// Set the package-level vaultAddr used by vault.go functions
+	vaultAddr = cfg.VaultAddr
 
 	if err := AppRoleLogin(cfg.RoleID, cfg.SecretID); err != nil {
 		log.Fatalf("[vault] startup failed: %v", err)
