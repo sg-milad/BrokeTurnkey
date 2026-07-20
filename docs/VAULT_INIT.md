@@ -161,7 +161,7 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 Add RoleID and SecretID to the Go crypto service env:
 
 ```bash
-# .env.crypto (for the Go crypto service container)
+# .env (for the Go crypto service container)
 VAULT_ADDR=http://vault:8200
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
@@ -245,7 +245,7 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
-Then update `VAULT_SECRET_ID` in `.env.crypto` and restart the crypto container.
+Then update `VAULT_SECRET_ID` in `.env` and restart the crypto container.
 
 ---
 
@@ -257,5 +257,5 @@ Then update `VAULT_SECRET_ID` in `.env.crypto` and restart the crypto container.
 | Unseal Key 2     | `.env.vault` (dev only) / secondary password manager        |
 | Unseal Key 3     | **Not in `.env.vault`** — printed backup or offline storage |
 | Root Token       | `.env.vault` (dev only) — never in application code         |
-| AppRole RoleID   | `.env.crypto` — not secret                                  |
-| AppRole SecretID | `.env.crypto` — rotate manually every 30 days               |
+| AppRole RoleID   | `.env` — not secret                                         |
+| AppRole SecretID | `.env` — rotate manually every 30 days                      |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="$(dirname "$0")/../.env.vault"
+ENV_FILE="$(dirname "$0")/../.env"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: $ENV_FILE not found. Run vault operator init first."

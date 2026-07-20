@@ -10,8 +10,8 @@ async function bootstrap() {
     .setDescription('The API documentation for BrokeTurnkey')
     .setVersion('1.0')
     .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  const document = SwaggerModule.createDocument(app as any, config);
+  SwaggerModule.setup('docs', app as any, document);
   console.log("Swagger docs available at: http://localhost:3000/docs");
   await app.listen(process.env.port ?? 3000);
 }

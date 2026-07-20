@@ -39,7 +39,7 @@ func main() {
 	log.Printf("Starting Crypto Service...")
 	log.Printf("VAULT_ADDR: %s", cfg.VaultAddr)
 	log.Printf("VAULT_ROLE_ID: %s", cfg.RoleID)
-	log.Printf("VAULT_SECRET_ID: [REDACTED]")
+	log.Printf("VAULT_SECRET_ID: %s", cfg.SecretID)
 	log.Printf("CRYPTO_PORT: %s", cfg.CryptoPort)
 
 	// Set the package-level vaultAddr used by vault.go functions

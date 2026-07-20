@@ -9,13 +9,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// loadEnv loads .env.crypto from the repo root (../../ relative to cmd/crypto/).
+// loadEnv loads .env from the repo root (../../ relative to cmd/crypto/).
 // It is called at the top of every test that needs Vault — safe to call multiple times.
 func loadEnv(t *testing.T) {
 	t.Helper()
 	// godotenv.Load does not overwrite vars already set in the environment,
 	// so CI can inject them directly without a file being present.
-	_ = godotenv.Load("../../.env.crypto")
+	_ = godotenv.Load("../../.env")
 	t.Logf("VAULT_ADDR     = %s", os.Getenv("VAULT_ADDR"))
 	t.Logf("VAULT_ROLE_ID  = %s", os.Getenv("VAULT_ROLE_ID"))
 	t.Logf("VAULT_SECRET_ID = %s...", os.Getenv("VAULT_SECRET_ID")[:8]) // first 8 chars only

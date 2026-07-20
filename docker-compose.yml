@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
     # No ports exposed to host — reachable only on walletmvp-network
     env_file:
-      - .env.crypto
+      - .env
     depends_on:
       - vault
     networks:
@@ -75,6 +75,5 @@ networks:
 
 volumes:
   vault-data:
-      external: true
   vault-logs:
   postgres-data:

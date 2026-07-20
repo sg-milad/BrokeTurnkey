@@ -55,9 +55,9 @@ skeleton that everything else will plug into.
 - `Dockerfile.crypto` — multi-stage build: `golang:1.23-alpine` builder,
   minimal `alpine:3.20` runtime, non-root user
 - `docker-compose.yml` — add `crypto` service: builds from `Dockerfile.crypto`,
-  `env_file: .env.crypto`, no host port exposed, on `walletmvp-network`,
+  `env_file: .env`, no host port exposed, on `walletmvp-network`,
   `depends_on: vault`
-- `.env.crypto` — `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, `CRYPTO_PORT`
+- `.env` — `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, `CRYPTO_PORT`
 - create /helath path in nestjs, you should curl crypto:port/health.
 
 **Done when:** `docker compose up` starts the crypto container without errors and /health return 200.
@@ -74,7 +74,7 @@ communication. Can be tested against a live Vault before any wallet logic exists
 - `AppRoleLogin()` — POSTs to `/v1/auth/approle/login`, stores token in memory
 - `RenewToken()` — POSTs to `/v1/auth/token/renew-self`, resets renewal timer
 - `RotateSecretID()` — POSTs to `/v1/auth/approle/role/wallet-signer/secret-id`,
-  writes new SecretID to `.env.crypto` for next restart
+  writes new SecretID to `.env` for next restart
 - `StartTokenRenewalLoop()` — background goroutine, fires at 75% of token TTL (~45 min)
 - `EncryptDEK(dek []byte) (string, error)` — POSTs to `/v1/transit/encrypt/wallet-dek`,
   returns `"vault:v1:..."` ciphertext string
