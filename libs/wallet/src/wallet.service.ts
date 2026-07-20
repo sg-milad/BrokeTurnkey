@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { CryptoClientService } from '@app/crypto-client';
 import {
     OrganisationSeedRepository,
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
+    UserRepository,
 } from '@app/db/repositories';
 import { TxFields } from '@app/crypto-client/interfaces/crypto-client.interfaces';
 
@@ -16,6 +17,7 @@ export class WalletService {
         private readonly walletRepo: WalletRepository,
         private readonly signingRequestRepo: SigningRequestRepository,
         private readonly auditLogRepo: AuditLogRepository,
+        private readonly userRepo: UserRepository,
     ) { }
 
     async onboardOrganisation(orgId: string) {
@@ -51,7 +53,17 @@ export class WalletService {
 
     async deriveWallet(orgId: string, userId: string, label: string) {
         const seedRow = await this.orgSeedRepo.findByOrgId(orgId);
-        if (!seedRow) throw new Error('Org seed not found');
+        if (!seedRow) throw new BadRequestException('Organisation has not been onboarded');
+
+        const user = await this.userRepo.findById(userId);
+        if (!user) {
+            throw new NotFoundException(`User with id "${userId}" does not exist`);
+        }
+        if (user.org_id !== orgId) {
+            throw new BadRequestException(
+                `User "${userId}" does not belong to organisation "${orgId}"`,
+            );
+        }
 
         // NOTE: countByOrgId has a race condition under concurrent requests for
         // the same org. The unique index on (org_id, derivation_path) will catch

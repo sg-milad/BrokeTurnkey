@@ -1,4 +1,4 @@
-import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
 import { OrganisationRepository } from '@app/db/repositories/organisation.repository';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
 import { Organisation } from '@app/db/schema/organisations';
@@ -12,6 +12,12 @@ export class OrganisationsService {
     ) { }
 
     async create(createOrganisationDto: CreateOrganisationDto): Promise<Organisation> {
+        const existing = await this.organisationRepository.findBySlug(createOrganisationDto.slug);
+        if (existing) {
+            throw new ConflictException(
+                `Organisation with slug "${createOrganisationDto.slug}" already exists`,
+            );
+        }
         return this.organisationRepository.create(createOrganisationDto);
     }
 
