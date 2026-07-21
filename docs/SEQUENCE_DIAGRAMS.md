@@ -1,6 +1,7 @@
 # WalletMVP — Sequence Diagrams
 
 All diagrams reflect the current architecture:
+
 - Go crypto service is a long-lived HTTP sidecar (not a spawned process)
 - Go owns all cryptographic operations including Vault calls
 - NestJS never holds a Vault token or any plaintext key material
@@ -83,7 +84,8 @@ sequenceDiagram
 ## 3. Child wallet derivation
 
 Called when an organisation needs a new wallet address. Derives the next
-child key from the existing org seed without generating new entropy.
+child key from the existing org seed without generating new entropy. `userId`
+is optional — omit it for system wallets (treasury, deployer, etc.).
 
 ```mermaid
 sequenceDiagram
@@ -94,9 +96,14 @@ sequenceDiagram
     participant GO as Go Crypto Service
     participant V as HashiCorp Vault
 
-    C->>API: POST /wallets (X-Stamp) {userId, label}
+    C->>API: POST /wallets (X-Stamp) {label, userId?}
     API->>API: Verify stamp signature
-    API->>WS: deriveWallet(orgId, userId, label)
+    API->>WS: deriveWallet(orgId, label, userId?)
+
+    opt userId provided
+        WS->>DB: SELECT user WHERE id=userId AND orgId=?
+        DB-->>WS: user row (or 404 if not found / wrong org)
+    end
 
     WS->>DB: SELECT encryptedSeed, seedNonce, encryptedDek FROM organisation_seeds WHERE orgId=?
     DB-->>WS: org seed row (all ciphertext)
@@ -117,11 +124,11 @@ sequenceDiagram
 
     GO-->>WS: {address, derivationPath: "m/44'/60'/0'/0/N"}
 
-    WS->>DB: INSERT wallets (orgId, userId, address, derivationPath, label)
-    WS->>DB: INSERT audit_log (event=wallet_created, orgId, userId, address)
+    WS->>DB: INSERT wallets (orgId, userId=null|userId, address, derivationPath, label)
+    WS->>DB: INSERT audit_log (event=wallet_created, orgId, userId?, address)
 
-    WS-->>API: {walletId, address, derivationPath}
-    API-->>C: 201 Created {walletId, address, derivationPath}
+    WS-->>API: {walletId, address}
+    API-->>C: 201 Created {walletId, address}
 ```
 
 ---

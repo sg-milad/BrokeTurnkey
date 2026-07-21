@@ -60,6 +60,7 @@ graph TD
 that handles all client-facing requests.
 
 **What it does:**
+
 - Verifies the P-256 cryptographic stamp on every incoming request
 - Routes requests to the correct service (wallet creation, signing, gas, policy)
 - Reads and writes all business data to PostgreSQL via Drizzle ORM
@@ -70,6 +71,7 @@ that handles all client-facing requests.
 - Broadcasts signed transactions to the Ethereum network via a free RPC provider
 
 **What it does NOT do:**
+
 - Never generates, decrypts, or touches any key material
 - Never holds a Vault token or communicates with Vault directly
 - Never sees a plaintext seed, plaintext DEK, or private key
@@ -84,6 +86,7 @@ that handles all client-facing requests.
 client, injected everywhere via the `DRIZZLE_CLIENT` symbol token.
 
 **What it does:**
+
 - Defines all nine Drizzle schema tables
 - Provides the `DRIZZLE_CLIENT` injection token globally
 - Manages the PostgreSQL connection pool
@@ -99,6 +102,7 @@ client, injected everywhere via the `DRIZZLE_CLIENT` symbol token.
 on every incoming request.
 
 **What it does:**
+
 - Parses the `X-Stamp` header from every request
 - Verifies the P-256 signature over the request body and timestamp
 - Rejects requests with invalid, missing, or replayed stamps
@@ -115,13 +119,17 @@ replay attacks even if TLS is terminated upstream.
 **What it is:** The primary business logic layer for wallet and signing operations.
 
 **What it does:**
+
 - Handles wallet creation: calls Go crypto service, stores ciphertext in Postgres
-- Handles child wallet derivation: calls Go crypto service with org seed ciphertext
+- Handles child wallet derivation: calls Go crypto service with org seed ciphertext;
+  `userId` is optional — system wallets (treasury, deployer, etc.) are created without
+  a user assignment; `wallets.user_id` is nullable
 - Handles signing requests: checks policy, calls Go crypto service, records result
 - Manages the wallet address cache (addresses stored in plaintext after first derivation)
 - Coordinates with `@app/gas` for nonce and fee management
 
 **What it does NOT do:**
+
 - Never touches plaintext key material — only ciphertext in and out of Postgres
 - Does not call Vault
 
@@ -132,6 +140,7 @@ replay attacks even if TLS is terminated upstream.
 **What it is:** Transaction assembly and broadcast service.
 
 **What it does:**
+
 - Estimates gas via `eth_estimateGas` on a free RPC provider
 - Manages nonce sequences per wallet (reads from `wallet_nonces` table)
 - Assembles the raw transaction fields before sending them to the Go signer
@@ -145,6 +154,7 @@ replay attacks even if TLS is terminated upstream.
 **What it is:** Rule evaluator that gates every signing request.
 
 **What it does:**
+
 - Evaluates spend limits (per-transaction and rolling window)
 - Checks address allowlists and blocklists
 - Enforces time locks (e.g. no signing outside business hours)
@@ -160,6 +170,7 @@ container. It is the single cryptographic boundary of the entire system.
 All key material — plaintext or ciphertext — is handled exclusively here.
 
 **What it does:**
+
 - Authenticates to Vault independently using its own AppRole credentials
   (`wallet-signer` role) at startup
 - Renews its Vault token on a background timer (at ~75% of TTL)
@@ -176,6 +187,7 @@ All key material — plaintext or ciphertext — is handled exclusively here.
   secp256k1, returns `{ signature, txHash }`, zeroes all key material
 
 **What it does NOT do:**
+
 - Never stores any key material to disk
 - Never logs plaintext key material
 - Never exposes its HTTP port outside the Docker internal network
@@ -195,6 +207,7 @@ the internal Docker network (`walletmvp-network`). NestJS calls it via
 Docker container. It plays one narrow role: KEK (Key Encryption Key) store.
 
 **What it does:**
+
 - Runs the Transit secrets engine, which provides encrypt and decrypt operations
   on the `wallet-dek` key ring
 - The `wallet-dek` key ring holds the KEK — an AES-256-GCM96 key that never
@@ -207,6 +220,7 @@ Docker container. It plays one narrow role: KEK (Key Encryption Key) store.
 - Supports key rotation via Transit key versioning (`vault:v1:...`, `vault:v2:...`)
 
 **What it does NOT do:**
+
 - Does not store seeds, private keys, or any wallet data
 - Does not communicate with NestJS — only the Go crypto service
 - Does not expose any endpoint outside the Docker internal network (except
@@ -225,6 +239,7 @@ unsealed — never on disk.
 encrypted key material.
 
 **What it does:**
+
 - Stores all nine tables defined in the Drizzle schema
 - Holds `encrypted_seed`, `seed_nonce`, and `encrypted_dek` per organisation
   — all are ciphertext, never plaintext
@@ -232,6 +247,7 @@ encrypted key material.
 - Holds the append-only audit log
 
 **What it does NOT do:**
+
 - Never holds plaintext seeds, DEKs, or private keys
 - A full database breach alone exposes nothing cryptographically useful —
   an attacker would also need to compromise Vault
@@ -240,13 +256,13 @@ encrypted key material.
 
 ## Communication map
 
-| From | To | Protocol | What is sent |
-|---|---|---|---|
-| Client | NestJS API | HTTPS + X-Stamp | Signed API requests |
-| NestJS API | Go Crypto Service | HTTP (internal Docker network) | Ciphertext + tx fields |
-| Go Crypto Service | HashiCorp Vault | HTTP (internal Docker network) | AppRole login, encrypt/decrypt calls |
-| NestJS API | PostgreSQL | TCP (internal Docker network) | SQL queries — reads/writes ciphertext |
-| NestJS API | External RPC | HTTPS | Signed raw transactions for broadcast |
+| From              | To                | Protocol                       | What is sent                          |
+| ----------------- | ----------------- | ------------------------------ | ------------------------------------- |
+| Client            | NestJS API        | HTTPS + X-Stamp                | Signed API requests                   |
+| NestJS API        | Go Crypto Service | HTTP (internal Docker network) | Ciphertext + tx fields                |
+| Go Crypto Service | HashiCorp Vault   | HTTP (internal Docker network) | AppRole login, encrypt/decrypt calls  |
+| NestJS API        | PostgreSQL        | TCP (internal Docker network)  | SQL queries — reads/writes ciphertext |
+| NestJS API        | External RPC      | HTTPS                          | Signed raw transactions for broadcast |
 
 **Nothing sensitive crosses the Docker network boundary.** All plaintext key
 material exists only inside the Go crypto service process memory, for the

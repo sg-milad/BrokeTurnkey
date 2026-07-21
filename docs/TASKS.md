@@ -74,7 +74,7 @@ communication. Can be tested against a live Vault before any wallet logic exists
 - `AppRoleLogin()` — POSTs to `/v1/auth/approle/login`, stores token in memory
 - `RenewToken()` — POSTs to `/v1/auth/token/renew-self`, resets renewal timer
 - `RotateSecretID()` — POSTs to `/v1/auth/approle/role/wallet-signer/secret-id`,
-  writes new SecretID to `.env` for next restart
+  writes new SecretID to `.env.crypto` for next restart
 - `StartTokenRenewalLoop()` — background goroutine, fires at 75% of token TTL (~45 min)
 - `EncryptDEK(dek []byte) (string, error)` — POSTs to `/v1/transit/encrypt/wallet-dek`,
   returns `"vault:v1:..."` ciphertext string
@@ -256,13 +256,18 @@ service. Never touches key material — only ciphertext in, ciphertext out.
 - Inserts first wallet row into `wallets` (address=firstAddress, derivIndex=0)
 - Writes `audit_log` entry (`event=org_onboarded`)
 
-`WalletService.deriveWallet(orgId, userId, label)`
+`WalletService.deriveWallet(orgId, label, userId?: string)`
 
 - Reads org seed ciphertext from `organisation_seeds`
+- If `userId` is provided, verifies the user exists and belongs to `orgId`
 - Gets next derivation index: `COUNT(*) FROM wallets WHERE orgId=?`
 - Calls `CryptoClientService.deriveWallet(ciphertext, index)`
-- Inserts new row into `wallets` (address, derivationPath, userId, label)
+- Inserts new row into `wallets` (address, derivationPath, label, userId=null if omitted)
 - Writes `audit_log` entry (`event=wallet_created`)
+
+Note: `userId` is optional. System wallets (treasury, deployer, etc.) are created
+without a user assignment. A wallet can be assigned to a user at creation time or
+left unassigned indefinitely — `wallets.user_id` is nullable.
 
 `WalletService.requestSign(orgId, walletId, txFields)`
 
@@ -281,10 +286,54 @@ Wire up NestJS controllers. Stamp verification guard applied to all routes.
 
 **Deliverables:**
 
+`StampVerifierGuard` from `@app/auth` applied globally or per-controller.
+
+**Organisations**
+
+- `POST /organisations` → create org record
 - `POST /organisations/:id/onboard` → `WalletService.onboardOrganisation()`
-- `POST /wallets` → `WalletService.deriveWallet()`
+- `GET /organisations/:id` → fetch org details
+
+**Users**
+
+- `POST /organisations/:id/users` → create a user within an org
+- `GET /organisations/:id/users` → list all users in an org
+- `GET /organisations/:id/users/:userId` → get user details
+- `DELETE /organisations/:id/users/:userId` → deactivate user
+
+**Wallets**
+
+- `POST /wallets` → `WalletService.deriveWallet()` — `userId` is optional in the
+  request body; omit for system wallets (treasury, deployer, etc.)
+- `GET /organisations/:id/wallets` → list all wallets for an org; returns `walletId`
+  and `address` only (no derivation paths exposed)
+- `GET /organisations/:id/users/:userId/wallets` → list wallets assigned to a specific user
+- `GET /wallets/:id` → get single wallet (`walletId`, `address`, `label`, `userId` if set)
+- `PATCH /wallets/:id` → update `label` only
+
+**Signing**
+
 - `POST /wallets/:id/sign` → `WalletService.requestSign()`
-- `StampVerifierGuard` from `@app/auth` applied globally or per-controller
+- `GET /wallets/:id/signing-requests` → signing history for a wallet
+- `GET /organisations/:id/signing-requests` → all signing activity for an org
+
+**Audit**
+
+- `GET /organisations/:id/audit-log` → paginated audit log; supports filtering by
+  `event` type and date range
+
+**API Keys**
+
+- `POST /organisations/:id/api-keys` → create an API key; returns public key for
+  stamp setup
+- `GET /organisations/:id/api-keys` → list active keys
+- `DELETE /organisations/:id/api-keys/:keyId` → revoke a key
+
+**Policies**
+
+- `POST /organisations/:id/policies` → create a policy rule
+- `GET /organisations/:id/policies` → list all rules for an org
+- `DELETE /organisations/:id/policies/:policyId` → delete a rule
 
 ---
 
