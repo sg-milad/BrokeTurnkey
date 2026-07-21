@@ -86,7 +86,7 @@ Table organisation_seeds {
 Table wallets {
   id               uuid        [pk, default: `gen_random_uuid()`]
   org_id           uuid        [not null, ref: > organisations.id]
-  user_id          uuid        [not null, ref: > users.id]
+  user_id          uuid        [ref: > users.id]
   label            varchar(100)
   address          varchar(42)  [not null, note: 'Ethereum address 0x...']
   derivation_path  varchar(50)  [not null, note: "e.g. m/44'/60'/0'/0/3"]
