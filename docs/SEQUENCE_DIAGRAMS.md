@@ -34,9 +34,9 @@ sequenceDiagram
 
 ---
 
-## 2. Organisation onboarding — generate and store seed
+## 2. organization onboarding — generate and store seed
 
-Called once when an organisation first onboards. Generates the master BIP39
+Called once when an organization first onboards. Generates the master BIP39
 seed from which all their wallet addresses will be derived.
 
 ```mermaid
@@ -48,9 +48,9 @@ sequenceDiagram
     participant GO as Go Crypto Service
     participant V as HashiCorp Vault
 
-    C->>API: POST /organisations/:id/onboard (X-Stamp)
+    C->>API: POST /organizations/:id/onboard (X-Stamp)
     API->>API: Verify stamp signature
-    API->>WS: onboardOrganisation(orgId)
+    API->>WS: onboardorganization(orgId)
 
     WS->>GO: POST /wallet/create {orgId}
 
@@ -71,7 +71,7 @@ sequenceDiagram
 
     GO-->>WS: {encryptedSeed, seedNonce, encryptedDek, firstAddress}
 
-    WS->>DB: INSERT organisation_seeds (orgId, encryptedSeed, seedNonce, encryptedDek)
+    WS->>DB: INSERT organization_seeds (orgId, encryptedSeed, seedNonce, encryptedDek)
     WS->>DB: INSERT wallets (orgId, address=firstAddress, derivIndex=0)
     WS->>DB: INSERT audit_log (event=org_onboarded, orgId)
 
@@ -83,7 +83,7 @@ sequenceDiagram
 
 ## 3. Child wallet derivation
 
-Called when an organisation needs a new wallet address. Derives the next
+Called when an organization needs a new wallet address. Derives the next
 child key from the existing org seed without generating new entropy. `userId`
 is optional — omit it for system wallets (treasury, deployer, etc.).
 
@@ -105,7 +105,7 @@ sequenceDiagram
         DB-->>WS: user row (or 404 if not found / wrong org)
     end
 
-    WS->>DB: SELECT encryptedSeed, seedNonce, encryptedDek FROM organisation_seeds WHERE orgId=?
+    WS->>DB: SELECT encryptedSeed, seedNonce, encryptedDek FROM organization_seeds WHERE orgId=?
     DB-->>WS: org seed row (all ciphertext)
 
     WS->>DB: SELECT COUNT(*) FROM wallets WHERE orgId=? → derivIndex N
@@ -171,7 +171,7 @@ sequenceDiagram
 
     API->>WS: requestSign(orgId, walletId, txFields)
 
-    WS->>DB: SELECT encryptedSeed, seedNonce, encryptedDek FROM organisation_seeds WHERE orgId=?
+    WS->>DB: SELECT encryptedSeed, seedNonce, encryptedDek FROM organization_seeds WHERE orgId=?
     DB-->>WS: org seed row (all ciphertext)
 
     WS->>GO: POST /wallet/sign {encryptedSeed, seedNonce, encryptedDek, derivationPath, txFields}

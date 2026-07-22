@@ -249,16 +249,16 @@ service. Never touches key material — only ciphertext in, ciphertext out.
 
 **Deliverables:**
 
-`WalletService.onboardOrganisation(orgId: string)`
+`WalletService.onboardorganization(orgId: string)`
 
 - Calls `CryptoClientService.createWallet(orgId)`
-- Inserts into `organisation_seeds` (encryptedSeed, seedNonce, encryptedDek)
+- Inserts into `organization_seeds` (encryptedSeed, seedNonce, encryptedDek)
 - Inserts first wallet row into `wallets` (address=firstAddress, derivIndex=0)
 - Writes `audit_log` entry (`event=org_onboarded`)
 
 `WalletService.deriveWallet(orgId, label, userId?: string)`
 
-- Reads org seed ciphertext from `organisation_seeds`
+- Reads org seed ciphertext from `organization_seeds`
 - If `userId` is provided, verifies the user exists and belongs to `orgId`
 - Gets next derivation index: `COUNT(*) FROM wallets WHERE orgId=?`
 - Calls `CryptoClientService.deriveWallet(ciphertext, index)`
@@ -271,7 +271,7 @@ left unassigned indefinitely — `wallets.user_id` is nullable.
 
 `WalletService.requestSign(orgId, walletId, txFields)`
 
-- Reads org seed ciphertext from `organisation_seeds`
+- Reads org seed ciphertext from `organization_seeds`
 - Reads `derivationPath` from `wallets WHERE id=walletId`
 - Calls `CryptoClientService.signTransaction(ciphertext, derivationPath, txFields)`
 - Inserts into `signing_requests` (walletId, txHash, status=signed)
@@ -288,26 +288,26 @@ Wire up NestJS controllers. Stamp verification guard applied to all routes.
 
 `StampVerifierGuard` from `@app/auth` applied globally or per-controller.
 
-**Organisations**
+**organizations**
 
-- `POST /organisations` → create org record
-- `POST /organisations/:id/onboard` → `WalletService.onboardOrganisation()`
-- `GET /organisations/:id` → fetch org details
+- `POST /organizations` → create org record
+- `POST /organizations/:id/onboard` → `WalletService.onboardorganization()`
+- `GET /organizations/:id` → fetch org details
 
 **Users**
 
-- `POST /organisations/:id/users` → create a user within an org
-- `GET /organisations/:id/users` → list all users in an org
-- `GET /organisations/:id/users/:userId` → get user details
-- `DELETE /organisations/:id/users/:userId` → deactivate user
+- `POST /organizations/:id/users` → create a user within an org
+- `GET /organizations/:id/users` → list all users in an org
+- `GET /organizations/:id/users/:userId` → get user details
+- `DELETE /organizations/:id/users/:userId` → deactivate user
 
 **Wallets**
 
 - `POST /wallets` → `WalletService.deriveWallet()` — `userId` is optional in the
   request body; omit for system wallets (treasury, deployer, etc.)
-- `GET /organisations/:id/wallets` → list all wallets for an org; returns `walletId`
+- `GET /organizations/:id/wallets` → list all wallets for an org; returns `walletId`
   and `address` only (no derivation paths exposed)
-- `GET /organisations/:id/users/:userId/wallets` → list wallets assigned to a specific user
+- `GET /organizations/:id/users/:userId/wallets` → list wallets assigned to a specific user
 - `GET /wallets/:id` → get single wallet (`walletId`, `address`, `label`, `userId` if set)
 - `PATCH /wallets/:id` → update `label` only
 
@@ -315,25 +315,25 @@ Wire up NestJS controllers. Stamp verification guard applied to all routes.
 
 - `POST /wallets/:id/sign` → `WalletService.requestSign()`
 - `GET /wallets/:id/signing-requests` → signing history for a wallet
-- `GET /organisations/:id/signing-requests` → all signing activity for an org
+- `GET /organizations/:id/signing-requests` → all signing activity for an org
 
 **Audit**
 
-- `GET /organisations/:id/audit-log` → paginated audit log; supports filtering by
+- `GET /organizations/:id/audit-log` → paginated audit log; supports filtering by
   `event` type and date range
 
 **API Keys**
 
-- `POST /organisations/:id/api-keys` → create an API key; returns public key for
+- `POST /organizations/:id/api-keys` → create an API key; returns public key for
   stamp setup
-- `GET /organisations/:id/api-keys` → list active keys
-- `DELETE /organisations/:id/api-keys/:keyId` → revoke a key
+- `GET /organizations/:id/api-keys` → list active keys
+- `DELETE /organizations/:id/api-keys/:keyId` → revoke a key
 
 **Policies**
 
-- `POST /organisations/:id/policies` → create a policy rule
-- `GET /organisations/:id/policies` → list all rules for an org
-- `DELETE /organisations/:id/policies/:policyId` → delete a rule
+- `POST /organizations/:id/policies` → create a policy rule
+- `GET /organizations/:id/policies` → list all rules for an org
+- `DELETE /organizations/:id/policies/:policyId` → delete a rule
 
 ---
 

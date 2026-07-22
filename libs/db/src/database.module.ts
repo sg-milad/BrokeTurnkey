@@ -3,11 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { createDrizzleClient, DrizzleClient } from './db';
 import { DRIZZLE_CLIENT } from './constants';
 import {
-  OrganisationSeedRepository,
+  organizationSeedRepository,
   WalletRepository,
   SigningRequestRepository,
   AuditLogRepository,
-  OrganisationRepository,
+  organizationRepository,
   UserRepository,
 } from './repositories';
 
@@ -23,20 +23,20 @@ import {
         return createDrizzleClient(url);
       },
     },
-    OrganisationSeedRepository,
+    organizationSeedRepository,
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
-    OrganisationRepository,
+    organizationRepository,
     UserRepository,
   ],
   exports: [
     DRIZZLE_CLIENT,
-    OrganisationSeedRepository,
+    organizationSeedRepository,
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
-    OrganisationRepository,
+    organizationRepository,
     UserRepository,
   ],
 })

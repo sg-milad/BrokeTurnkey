@@ -1,11 +1,11 @@
 import { pgTable, uuid, varchar, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { organisations } from './organisations';
+import { organizations } from './organizations';
 import { users } from './users';
 
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  org_id: uuid('org_id').notNull().references(() => organisations.id),
+  org_id: uuid('org_id').notNull().references(() => organizations.id),
   user_id: uuid('user_id').references(() => users.id), // nullable — system wallets have no user
   label: varchar('label', { length: 100 }),
   address: varchar('address', { length: 42 }).notNull(),

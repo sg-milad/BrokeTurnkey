@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { CryptoClientService } from '@app/crypto-client';
 import {
-    OrganisationSeedRepository,
+    organizationSeedRepository,
     WalletRepository,
     SigningRequestRepository,
     AuditLogRepository,
@@ -13,16 +13,16 @@ import { TxFields } from '@app/crypto-client/interfaces/crypto-client.interfaces
 export class WalletService {
     constructor(
         private readonly cryptoClient: CryptoClientService,
-        private readonly orgSeedRepo: OrganisationSeedRepository,
+        private readonly orgSeedRepo: organizationSeedRepository,
         private readonly walletRepo: WalletRepository,
         private readonly signingRequestRepo: SigningRequestRepository,
         private readonly auditLogRepo: AuditLogRepository,
         private readonly userRepo: UserRepository,
     ) { }
 
-    async onboardOrganisation(orgId: string) {
+    async onboardorganization(orgId: string) {
         const existing = await this.orgSeedRepo.findByOrgId(orgId);
-        if (existing) throw new Error('Organisation already onboarded');
+        if (existing) throw new Error('organization already onboarded');
 
         const { encryptedSeed, seedNonce, encryptedDek, firstAddress } =
             await this.cryptoClient.createWallet(orgId);
@@ -53,7 +53,7 @@ export class WalletService {
 
     async deriveWallet(orgId: string, userId: string, label: string) {
         const seedRow = await this.orgSeedRepo.findByOrgId(orgId);
-        if (!seedRow) throw new BadRequestException('Organisation has not been onboarded');
+        if (!seedRow) throw new BadRequestException('organization has not been onboarded');
 
         const user = await this.userRepo.findById(userId);
         if (!user) {
@@ -61,7 +61,7 @@ export class WalletService {
         }
         if (user.org_id !== orgId) {
             throw new BadRequestException(
-                `User "${userId}" does not belong to organisation "${orgId}"`,
+                `User "${userId}" does not belong to organization "${orgId}"`,
             );
         }
 

@@ -30,13 +30,13 @@ the request body was tampered with in transit.
 
 ## Why stamps instead of API keys?
 
-| Property | Static API key | Stamp |
-|---|---|---|
-| Replay protection | ✗ Stolen key works forever | ✓ Timestamp baked into signature |
-| Body integrity | ✗ Body can be modified in transit | ✓ Signature covers the body |
-| Key exposure | ✗ Key is sent on every request | ✓ Private key never leaves caller |
-| Revocation granularity | ✗ Revoke the whole key | ✓ Same — but replay window limits damage |
-| Implementation complexity | Low | Medium |
+| Property                  | Static API key                    | Stamp                                    |
+| ------------------------- | --------------------------------- | ---------------------------------------- |
+| Replay protection         | ✗ Stolen key works forever        | ✓ Timestamp baked into signature         |
+| Body integrity            | ✗ Body can be modified in transit | ✓ Signature covers the body              |
+| Key exposure              | ✗ Key is sent on every request    | ✓ Private key never leaves caller        |
+| Revocation granularity    | ✗ Revoke the whole key            | ✓ Same — but replay window limits damage |
+| Implementation complexity | Low                               | Medium                                   |
 
 The stamp model is used by Turnkey (the inspiration for WalletMVP), AWS
 SigV4, and the WebAuthn standard. It is the right choice for a custody
@@ -46,12 +46,12 @@ platform where the operations being authorised have real financial impact.
 
 ## Key pair and key ID
 
-Each organisation creates one or more API key pairs on their own machine:
+Each organization creates one or more API key pairs on their own machine:
 
 - **Private key** — P-256 (secp256r1), generated and kept by the client. Never
   sent to WalletMVP. Used to sign stamps.
 - **Public key** — sent to WalletMVP once during key registration
-  (`POST /organisations/:id/api-keys`) in PEM format. Stored in `api_keys.public_key`.
+  (`POST /organizations/:id/api-keys`) in PEM format. Stored in `api_keys.public_key`.
 - **Key ID** — a short, URL-safe identifier for the key pair. The client
   generates this and registers it alongside the public key. Stored in
   `api_keys.key_id`. Included in every stamp so the server knows which
@@ -82,6 +82,7 @@ The client signs the following payload (a UTF-8 string):
 ### The signature
 
 The client signs the payload string using:
+
 - Algorithm: **ECDSA with P-256 (secp256r1) and SHA-256** — also written as
   `ES256` in JWT terminology.
 - The signature is DER-encoded (the default output from most P-256 libraries).
@@ -95,11 +96,11 @@ X-Stamp: <base64url(signature)>.<unix_timestamp_ms>.<key_id>
 
 Three dot-separated parts:
 
-| Part | Example | Description |
-|---|---|---|
-| `signature` | `MEYCIQDx...` | base64url DER-encoded ECDSA signature |
-| `timestamp` | `1718000000000` | Unix time in milliseconds |
-| `key_id` | `ak_prod_abc123` | Registered key ID from `api_keys.key_id` |
+| Part        | Example          | Description                              |
+| ----------- | ---------------- | ---------------------------------------- |
+| `signature` | `MEYCIQDx...`    | base64url DER-encoded ECDSA signature    |
+| `timestamp` | `1718000000000`  | Unix time in milliseconds                |
+| `key_id`    | `ak_prod_abc123` | Registered key ID from `api_keys.key_id` |
 
 Dots are used as separators because none of base64url, integers, or typical
 key ID characters contain dots.
@@ -119,6 +120,7 @@ If the header is missing or malformed, reject immediately.
 **Step 2 — Timestamp check (replay protection)**
 
 Parse the timestamp as an integer. Reject if:
+
 - The timestamp is more than **5 minutes in the past** (replay window).
 - The timestamp is more than **30 seconds in the future** (clock skew
   tolerance — prevents clients with slightly fast clocks from being rejected,
@@ -130,6 +132,7 @@ the original request. After that it is permanently invalid.
 **Step 3 — Fetch the API key**
 
 Look up `api_keys WHERE key_id = ?`. Reject if:
+
 - No row found.
 - `status != 'active'` (revoked key).
 - `expires_at` is set and is in the past (expired key).
@@ -137,6 +140,7 @@ Look up `api_keys WHERE key_id = ?`. Reject if:
 **Step 4 — Reconstruct the signed payload**
 
 Read the raw request body bytes. Compute:
+
 ```
 payload = timestamp + "." + base64url(SHA-256(body))
 ```
@@ -176,7 +180,7 @@ sequenceDiagram
     Client->>Client: Generate P-256 key pair
     Client->>Client: Choose a key_id (e.g. "ak_prod_abc123")
 
-    Client->>API: POST /organisations/:id/api-keys (X-Stamp with existing key, or root token for first key)
+    Client->>API: POST /organizations/:id/api-keys (X-Stamp with existing key, or root token for first key)
     note right of Client: Body: { name, public_key (PEM), key_id }
 
     API->>API: Validate org exists and is active
@@ -300,6 +304,7 @@ means unrestricted, which is the default for MVP simplicity but can be
 narrowed per key.
 
 Scope values (initial set):
+
 - `*` — all actions (default)
 - `wallet:create` — derive new wallet addresses
 - `wallet:sign` — sign transactions
@@ -314,7 +319,7 @@ Scope values (initial set):
 There is a chicken-and-egg problem: stamp verification requires a registered
 API key, but to register the first API key you have no key to stamp with.
 
-Resolution: `POST /organisations/:id/api-keys` accepts a **one-time
+Resolution: `POST /organizations/:id/api-keys` accepts a **one-time
 bootstrap token** on the `X-Bootstrap-Token` header instead of `X-Stamp`,
 but only if the org has zero existing `active` api_keys rows. This token is
 a random secret generated by the platform when the org is created and
@@ -324,7 +329,7 @@ Once the first key is registered, `X-Bootstrap-Token` is permanently
 rejected for that org. All subsequent key management operations require a
 valid stamp from an existing active key with `key:write` scope.
 
-The bootstrap token is stored hashed (SHA-256) in an `organisations` column:
+The bootstrap token is stored hashed (SHA-256) in an `organizations` column:
 
 ```
 bootstrap_token_hash  varchar(64)  [note: 'SHA-256 of the one-time bootstrap token — nulled after first key is registered']
@@ -340,32 +345,32 @@ that org.
 
 All failures return `401 Unauthorized` with a JSON body:
 
-| `error` field | Cause |
-|---|---|
-| `missing_stamp` | `X-Stamp` header absent |
-| `malformed_stamp` | Header does not parse into three parts |
-| `stamp_expired` | Timestamp older than 5 minutes |
-| `stamp_future` | Timestamp more than 30 seconds in the future |
-| `key_not_found` | `key_id` not in `api_keys` table |
-| `key_revoked` | `status = revoked` |
-| `key_expired` | `expires_at` is in the past |
+| `error` field        | Cause                                              |
+| -------------------- | -------------------------------------------------- |
+| `missing_stamp`      | `X-Stamp` header absent                            |
+| `malformed_stamp`    | Header does not parse into three parts             |
+| `stamp_expired`      | Timestamp older than 5 minutes                     |
+| `stamp_future`       | Timestamp more than 30 seconds in the future       |
+| `key_not_found`      | `key_id` not in `api_keys` table                   |
+| `key_revoked`        | `status = revoked`                                 |
+| `key_expired`        | `expires_at` is in the past                        |
 | `insufficient_scope` | Key does not have the scope required by this route |
-| `invalid_stamp` | Signature verification failed |
+| `invalid_stamp`      | Signature verification failed                      |
 
 Deliberately vague error codes are avoided — leaking which step failed is not
 a meaningful security risk for ECDSA (unlike timing attacks on HMAC), and
-precise errors make debugging much easier for integrating organisations.
+precise errors make debugging much easier for integrating organizations.
 
 ---
 
 ## Client implementation notes
 
-These notes are for documentation of what the integrating organisation's
+These notes are for documentation of what the integrating organization's
 client must do. Not NestJS implementation.
 
 1. Generate a P-256 key pair. Store the private key in a secure location
    (HSM, KMS, or at minimum an encrypted secrets store).
-2. Register the public key via `POST /organisations/:id/api-keys` using the
+2. Register the public key via `POST /organizations/:id/api-keys` using the
    bootstrap token for the first key.
 3. For every subsequent request:
    - Serialise the request body to a UTF-8 JSON string with consistent key
@@ -385,15 +390,15 @@ client must do. Not NestJS implementation.
 
 ## Security properties
 
-| Property | Achieved | How |
-|---|---|---|
-| Caller authentication | ✓ | ECDSA signature verifiable only with matching private key |
-| Body integrity | ✓ | SHA-256 of body is inside the signed payload |
-| Replay protection | ✓ | 5-minute timestamp window; expired stamps permanently invalid |
-| Future-stamp protection | ✓ | 30-second forward clock skew tolerance |
-| Key revocation | ✓ | `status=revoked` check on every request |
-| Key expiry | ✓ | `expires_at` check on every request |
-| Per-key permissions | ✓ | `scopes` array checked per route |
-| Key lineage audit | ✓ | `created_by_key_id` traces which key created each key |
-| Bootstrap lockout | ✓ | `bootstrap_token_hash` nulled after first key registered |
-| Private key never transmitted | ✓ | Only signature and public key ever leave the client |
+| Property                      | Achieved | How                                                           |
+| ----------------------------- | -------- | ------------------------------------------------------------- |
+| Caller authentication         | ✓        | ECDSA signature verifiable only with matching private key     |
+| Body integrity                | ✓        | SHA-256 of body is inside the signed payload                  |
+| Replay protection             | ✓        | 5-minute timestamp window; expired stamps permanently invalid |
+| Future-stamp protection       | ✓        | 30-second forward clock skew tolerance                        |
+| Key revocation                | ✓        | `status=revoked` check on every request                       |
+| Key expiry                    | ✓        | `expires_at` check on every request                           |
+| Per-key permissions           | ✓        | `scopes` array checked per route                              |
+| Key lineage audit             | ✓        | `created_by_key_id` traces which key created each key         |
+| Bootstrap lockout             | ✓        | `bootstrap_token_hash` nulled after first key registered      |
+| Private key never transmitted | ✓        | Only signature and public key ever leave the client           |

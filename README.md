@@ -74,19 +74,19 @@ to compromise the Go service and Vault simultaneously.
 
 ## Technology stack
 
-| Layer | Technology | Cost |
-|---|---|---|
-| API framework | NestJS + TypeScript | Free |
-| Crypto service | Go (long-lived HTTP sidecar) | Free |
-| Key encryption (KEK) | HashiCorp Vault OSS (Docker) | Free |
-| Seed encryption | AES-256-GCM (Go `crypto/aes`) | Free |
-| HD wallet generation | `go-bip39` + `go-bip32` (Go) | Free |
-| Transaction signing | `go-ethereum` (RLP, keccak256, secp256k1) | Free |
-| Smart contract interaction | Viem (NestJS broadcast layer) | Free |
-| Database | PostgreSQL (Docker) | Free |
-| RPC / gas estimation | Ankr free / Alchemy free / Tenderly | Free |
-| Authentication | P-256 API keys + optional WebAuthn | Free |
-| Audit log | PostgreSQL append-only table + Vault audit log | Free |
+| Layer                      | Technology                                     | Cost |
+| -------------------------- | ---------------------------------------------- | ---- |
+| API framework              | NestJS + TypeScript                            | Free |
+| Crypto service             | Go (long-lived HTTP sidecar)                   | Free |
+| Key encryption (KEK)       | HashiCorp Vault OSS (Docker)                   | Free |
+| Seed encryption            | AES-256-GCM (Go `crypto/aes`)                  | Free |
+| HD wallet generation       | `go-bip39` + `go-bip32` (Go)                   | Free |
+| Transaction signing        | `go-ethereum` (RLP, keccak256, secp256k1)      | Free |
+| Smart contract interaction | Viem (NestJS broadcast layer)                  | Free |
+| Database                   | PostgreSQL (Docker)                            | Free |
+| RPC / gas estimation       | Ankr free / Alchemy free / Tenderly            | Free |
+| Authentication             | P-256 API keys + optional WebAuthn             | Free |
+| Audit log                  | PostgreSQL append-only table + Vault audit log | Free |
 
 **Total infrastructure cost: $0**
 
@@ -94,11 +94,11 @@ to compromise the Go service and Vault simultaneously.
 
 ## Key design decisions
 
-### One seed per organisation (B2B model)
+### One seed per organization (B2B model)
 
-Every B2B customer (organisation) gets one BIP39 mnemonic seed (24 words,
+Every B2B customer (organization) gets one BIP39 mnemonic seed (24 words,
 256-bit entropy) generated at onboarding. All wallet addresses for that
-organisation are derived deterministically from this single seed via BIP32
+organization are derived deterministically from this single seed via BIP32
 paths (`m/44'/60'/0'/0/N`). No new entropy is ever needed when adding wallets.
 The seed is generated once, encrypted immediately, and never stored in plaintext.
 
@@ -112,7 +112,7 @@ plaintext key material never exists in the Node.js process — not even briefly.
 
 ### Envelope encryption with Vault as KEK
 
-Each organisation has a random 32-byte DEK that encrypts their seed. The DEK
+Each organization has a random 32-byte DEK that encrypts their seed. The DEK
 itself is encrypted by Vault's Transit engine (the KEK), which never leaves
 Vault. Only ciphertext is stored in PostgreSQL. A database breach alone
 exposes nothing; an attacker would also need to compromise the Go service
@@ -157,13 +157,13 @@ records of all key usage.
 
 ## What this MVP does NOT have (vs. Turnkey)
 
-| Turnkey feature | MVP equivalent | Gap |
-|---|---|---|
-| AWS Nitro Enclave (hardware TEE) | Docker process isolation | Kernel/hypervisor can still read Go process memory |
-| Remote attestation (PCR hash) | None | Cannot cryptographically prove what code ran |
-| HSM-backed entropy | `/dev/urandom` (OS CSPRNG) | Not hardware-certified, but cryptographically sound |
-| Quorum Key (hardware-enforced) | Vault Shamir unseal keys | Trusted by software, not hardware |
-| Inter-enclave signed messages | None | No provable chain of trust between services |
+| Turnkey feature                  | MVP equivalent             | Gap                                                 |
+| -------------------------------- | -------------------------- | --------------------------------------------------- |
+| AWS Nitro Enclave (hardware TEE) | Docker process isolation   | Kernel/hypervisor can still read Go process memory  |
+| Remote attestation (PCR hash)    | None                       | Cannot cryptographically prove what code ran        |
+| HSM-backed entropy               | `/dev/urandom` (OS CSPRNG) | Not hardware-certified, but cryptographically sound |
+| Quorum Key (hardware-enforced)   | Vault Shamir unseal keys   | Trusted by software, not hardware                   |
+| Inter-enclave signed messages    | None                       | No provable chain of trust between services         |
 
 This gap is real. For a product above ~$50k TVL or with strict compliance
 requirements, use Turnkey's production API or invest in Nitro Enclave
@@ -209,6 +209,6 @@ scripts/
 3. Run database migrations: `pnpm db:push`
 4. Start the NestJS API: `pnpm run start:dev`
 5. The Go crypto service starts automatically as a Docker container
-6. Call `POST /organisations/:id/onboard` to onboard your first organisation
+6. Call `POST /organizations/:id/onboard` to onboard your first organization
 
 Detailed instructions for each step are in `docs/VAULT_INIT.md` and `docs/TASKS.md`.

@@ -91,7 +91,7 @@ client, injected everywhere via the `DRIZZLE_CLIENT` symbol token.
 - Provides the `DRIZZLE_CLIENT` injection token globally
 - Manages the PostgreSQL connection pool
 
-**Tables:** `organisations`, `users`, `api_keys`, `organisation_seeds`,
+**Tables:** `organizations`, `users`, `api_keys`, `organization_seeds`,
 `wallets`, `signing_requests`, `wallet_nonces`, `policies`, `audit_log`
 
 ---
@@ -241,7 +241,7 @@ encrypted key material.
 **What it does:**
 
 - Stores all nine tables defined in the Drizzle schema
-- Holds `encrypted_seed`, `seed_nonce`, and `encrypted_dek` per organisation
+- Holds `encrypted_seed`, `seed_nonce`, and `encrypted_dek` per organization
   — all are ciphertext, never plaintext
 - Stores wallet addresses in plaintext (they are public information)
 - Holds the append-only audit log

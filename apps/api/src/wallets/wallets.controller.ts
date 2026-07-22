@@ -10,7 +10,7 @@ export class WalletsController {
     constructor(private readonly walletService: WalletService) { }
 
     @Post()
-    @ApiOperation({ summary: 'Derive a new wallet for an organisation' })
+    @ApiOperation({ summary: 'Derive a new wallet for an organization' })
     @ApiResponse({ status: 201, description: 'Wallet derived successfully.' })
     async derive(@Body() dto: DeriveWalletDto) {
         return this.walletService.deriveWallet(dto.orgId, dto.userId, dto.label);

@@ -1,12 +1,12 @@
 // WalletMVP — PostgreSQL Schema
-// B2B: organisations → users → wallets
+// B2B: organizations → users → wallets
 // Tool: https://dbdiagram.io — paste this to visualise
 
 // ─────────────────────────────────────────────
 // B2B LAYER
 // ─────────────────────────────────────────────
 
-Table organisations {
+Table organizations {
   id            uuid        [pk, default: `gen_random_uuid()`]
   name          varchar(255) [not null]
   slug          varchar(100) [not null, unique, note: 'URL-safe identifier used in API paths']
@@ -22,7 +22,7 @@ Table organisations {
 
 Table users {
   id            uuid        [pk, default: `gen_random_uuid()`]
-  org_id        uuid        [not null, ref: > organisations.id]
+  org_id        uuid        [not null, ref: > organizations.id]
   external_id   varchar(255) [not null, note: 'ID from the B2B customer own user table']
   email         varchar(255)
   role          varchar(30)  [not null, default: 'member', note: 'owner | admin | member']
@@ -41,7 +41,7 @@ Table users {
 
 Table api_keys {
   id            uuid        [pk, default: `gen_random_uuid()`]
-  org_id        uuid        [not null, ref: > organisations.id]
+  org_id        uuid        [not null, ref: > organizations.id]
   name          varchar(100) [not null, note: 'Human label e.g. "production key"']
   public_key    text        [not null, unique, note: 'P-256 public key (PEM or compressed hex) used to verify stamps']
   key_id        varchar(64)  [not null, unique, note: 'Short ID sent in the X-Stamp header']
@@ -59,14 +59,14 @@ Table api_keys {
 
 // ─────────────────────────────────────────────
 // KEY MATERIAL
-// One BIP39 seed per organisation.
+// One BIP39 seed per organization.
 // Seed is AES-256-GCM encrypted with a DEK.
 // DEK is wrapped by Vault Transit (KEK).
 // ─────────────────────────────────────────────
 
-Table organisation_seeds {
+Table organization_seeds {
   id              uuid  [pk, default: `gen_random_uuid()`]
-  org_id          uuid  [not null, unique, ref: > organisations.id, note: 'One seed per org']
+  org_id          uuid  [not null, unique, ref: > organizations.id, note: 'One seed per org']
   encrypted_seed  bytea [not null, note: 'AES-256-GCM ciphertext of the BIP39 mnemonic']
   seed_nonce      bytea [not null, note: '12-byte GCM nonce used to encrypt the seed']
   encrypted_dek   text  [not null, note: 'Vault Transit ciphertext of the DEK e.g. vault:v1:...']
@@ -85,7 +85,7 @@ Table organisation_seeds {
 
 Table wallets {
   id               uuid        [pk, default: `gen_random_uuid()`]
-  org_id           uuid        [not null, ref: > organisations.id]
+  org_id           uuid        [not null, ref: > organizations.id]
   user_id          uuid        [ref: > users.id]
   label            varchar(100)
   address          varchar(42)  [not null, note: 'Ethereum address 0x...']
@@ -109,7 +109,7 @@ Table wallets {
 
 Table signing_requests {
   id            uuid        [pk, default: `gen_random_uuid()`]
-  org_id        uuid        [not null, ref: > organisations.id]
+  org_id        uuid        [not null, ref: > organizations.id]
   wallet_id     uuid        [not null, ref: > wallets.id]
   tx_hash       varchar(66)  [note: '0x-prefixed keccak256 of the tx payload']
   tx_payload    jsonb        [note: 'raw unsigned tx fields: to, value, data, gas, nonce, chainId']
@@ -152,7 +152,7 @@ Table wallet_nonces {
 
 Table policies {
   id            uuid        [pk, default: `gen_random_uuid()`]
-  org_id        uuid        [not null, ref: > organisations.id]
+  org_id        uuid        [not null, ref: > organizations.id]
   name          varchar(100) [not null]
   description   text
   rule_type     varchar(50)  [not null, note: 'spend_limit | allowlist | time_lock | require_approval']
@@ -178,7 +178,7 @@ Table policies {
 
 Table audit_log {
   id            bigserial    [pk]
-  org_id        uuid         [not null, ref: > organisations.id]
+  org_id        uuid         [not null, ref: > organizations.id]
   user_id       uuid         [ref: > users.id, note: 'null for system events']
   wallet_id     uuid         [ref: > wallets.id, note: 'null for non-wallet events']
   api_key_id    uuid         [ref: > api_keys.id, note: 'which key made the request']

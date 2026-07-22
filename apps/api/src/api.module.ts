@@ -5,8 +5,8 @@ import { DatabaseModule } from '@app/db';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig } from './config/app.config';
 import { WalletModule } from '@app/wallet';
-import { OrganisationsModule } from './organisations/organisations.module';
 import { WalletsModule } from './wallets/wallets.module';
+import { OrganizationsModule } from './organizations/organizations.module';
 
 @Module({
   imports: [
@@ -14,7 +14,7 @@ import { WalletsModule } from './wallets/wallets.module';
       isGlobal: true,
       load: [appConfig],
       envFilePath: '.env',
-    }), DatabaseModule, WalletModule, OrganisationsModule, WalletsModule],
+    }), DatabaseModule, WalletModule, OrganizationsModule, WalletsModule],
   controllers: [ApiController],
   providers: [ApiService],
 })
