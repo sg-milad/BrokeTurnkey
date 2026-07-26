@@ -118,19 +118,6 @@ Vault. Only ciphertext is stored in PostgreSQL. A database breach alone
 exposes nothing; an attacker would also need to compromise the Go service
 and Vault simultaneously.
 
-### Go is a long-lived HTTP sidecar, not a spawned process
-
-The Go crypto service runs as a separate Docker container with a persistent
-HTTP server. NestJS calls it over the internal Docker network per request.
-This avoids per-request process startup overhead (50–200ms) while maintaining
-full process isolation — NestJS cannot directly read Go's memory.
-
-### txHash computed inside Go
-
-The Ethereum transaction hash (RLP encode → keccak256) is computed inside the
-Go crypto service, not in NestJS. This means Go knows exactly what it is
-signing and cannot be tricked into signing malicious data by a bug in NestJS.
-
 ### Single Vault AppRole for Go only
 
 NestJS has no Vault credentials. The Go crypto service uses one AppRole
@@ -145,13 +132,6 @@ Every client request carries a P-256 cryptographic stamp: a signature over
 the request body and timestamp attached as an `X-Stamp` header. The API
 verifies this before doing anything. This prevents request forgery, MITM
 attacks, and replay attacks — the same mechanism Turnkey uses.
-
-### Append-only audit log
-
-Every signing event, policy decision, and wallet creation is written to an
-append-only PostgreSQL table. Vault also writes its own audit log of every
-encrypt/decrypt call. Together these give two independent tamper-resistant
-records of all key usage.
 
 ---
 
