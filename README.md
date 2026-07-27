@@ -135,22 +135,6 @@ attacks, and replay attacks — the same mechanism Turnkey uses.
 
 ---
 
-## What this MVP does NOT have (vs. Turnkey)
-
-| Turnkey feature                  | MVP equivalent             | Gap                                                 |
-| -------------------------------- | -------------------------- | --------------------------------------------------- |
-| AWS Nitro Enclave (hardware TEE) | Docker process isolation   | Kernel/hypervisor can still read Go process memory  |
-| Remote attestation (PCR hash)    | None                       | Cannot cryptographically prove what code ran        |
-| HSM-backed entropy               | `/dev/urandom` (OS CSPRNG) | Not hardware-certified, but cryptographically sound |
-| Quorum Key (hardware-enforced)   | Vault Shamir unseal keys   | Trusted by software, not hardware                   |
-| Inter-enclave signed messages    | None                       | No provable chain of trust between services         |
-
-This gap is real. For a product above ~$50k TVL or with strict compliance
-requirements, use Turnkey's production API or invest in Nitro Enclave
-infrastructure.
-
----
-
 ## Repository structure
 
 ```
