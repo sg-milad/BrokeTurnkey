@@ -30,6 +30,6 @@ export class OrganizationsService {
     }
 
     async onboard(id: string) {
-        return this.walletService.onboardorganization(id);
+        return this.walletService.onBoardOrganization(id);
     }
 }

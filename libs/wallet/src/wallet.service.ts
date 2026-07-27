@@ -20,7 +20,7 @@ export class WalletService {
         private readonly userRepo: UserRepository,
     ) { }
 
-    async onboardorganization(orgId: string) {
+    async onBoardOrganization(orgId: string) {
         const existing = await this.orgSeedRepo.findByOrgId(orgId);
         if (existing) throw new Error('organization already onboarded');
 
