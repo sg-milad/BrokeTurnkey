@@ -7,5 +7,5 @@ export type {
     TxFields,
     CreateWalletResponse,
     DeriveWalletResponse,
-    SignTransactionResponse,
+    SignTransactionResult
 } from './interfaces/crypto-client.interfaces';
