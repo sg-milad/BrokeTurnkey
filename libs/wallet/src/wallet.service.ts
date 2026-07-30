@@ -25,7 +25,7 @@ export class WalletService {
         if (existing) throw new Error('organization already onboarded');
 
         const { encryptedSeed, seedNonce, encryptedDek, firstAddress } =
-            await this.cryptoClient.createWallet(orgId);
+            await this.cryptoClient.createWallet();
 
         await this.orgSeedRepo.create({
             org_id: orgId,
@@ -51,18 +51,20 @@ export class WalletService {
         return { orgId, firstAddress };
     }
 
-    async deriveWallet(orgId: string, userId: string, label: string) {
+    async deriveWallet(orgId: string, userId: string | undefined, label: string) {
         const seedRow = await this.orgSeedRepo.findByOrgId(orgId);
         if (!seedRow) throw new BadRequestException('organization has not been onboarded');
 
-        const user = await this.userRepo.findById(userId);
-        if (!user) {
-            throw new NotFoundException(`User with id "${userId}" does not exist`);
-        }
-        if (user.org_id !== orgId) {
-            throw new BadRequestException(
-                `User "${userId}" does not belong to organization "${orgId}"`,
-            );
+        if (userId) {
+            const user = await this.userRepo.findById(userId);
+            if (!user) {
+                throw new NotFoundException(`User with id "${userId}" does not exist`);
+            }
+            if (user.org_id !== orgId) {
+                throw new BadRequestException(
+                    `User "${userId}" does not belong to organization "${orgId}"`,
+                );
+            }
         }
 
         // NOTE: countByOrgId has a race condition under concurrent requests for
@@ -94,6 +96,42 @@ export class WalletService {
         });
 
         return { walletId: wallet.id, address, derivationPath };
+    }
+
+    async listWalletsByOrgId(orgId: string) {
+        const wallets = await this.walletRepo.findByOrgId(orgId);
+        return wallets.map((w) => ({
+            id: w.id,
+            address: w.address,
+            label: w.label,
+            user_id: w.user_id,
+            status: w.status,
+            created_at: w.created_at,
+        }));
+    }
+
+    async getWalletById(walletId: string) {
+        const wallet = await this.walletRepo.findById(walletId);
+        if (!wallet) throw new NotFoundException(`Wallet with id "${walletId}" does not exist`);
+        return {
+            id: wallet.id,
+            org_id: wallet.org_id,
+            address: wallet.address,
+            label: wallet.label,
+            user_id: wallet.user_id,
+            status: wallet.status,
+            created_at: wallet.created_at,
+        };
+    }
+
+    async listSigningRequestsByOrgId(orgId: string) {
+        return this.signingRequestRepo.findByOrgId(orgId);
+    }
+
+    async listSigningRequestsByWalletId(walletId: string) {
+        const wallet = await this.walletRepo.findById(walletId);
+        if (!wallet) throw new NotFoundException(`Wallet with id "${walletId}" does not exist`);
+        return this.signingRequestRepo.findByWalletId(walletId);
     }
 
     async requestSign(orgId: string, walletId: string, txFields: TxFields) {

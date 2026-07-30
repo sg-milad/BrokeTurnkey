@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsUUID, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsUUID, MinLength, IsOptional } from 'class-validator';
 
 export class DeriveWalletDto {
     @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' })
@@ -7,10 +7,11 @@ export class DeriveWalletDto {
     @IsUUID()
     orgId!: string;
 
-    @ApiProperty({ example: '660e8400-e29b-41d4-a716-446655440001' })
+    @ApiPropertyOptional({ example: '660e8400-e29b-41d4-a716-446655440001' })
+    @IsOptional()
     @IsString()
     @IsUUID()
-    userId!: string;
+    userId?: string;
 
     @ApiProperty({ example: 'Treasury wallet' })
     @IsString()

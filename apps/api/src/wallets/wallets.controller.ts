@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Param, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, HttpCode } from '@nestjs/common';
 import { WalletService } from '@app/wallet';
 import { DeriveWalletDto } from './dto/derive-wallet.dto';
 import { SignTransactionDto } from './dto/sign-transaction.dto';
@@ -8,6 +8,20 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 @Controller('wallets')
 export class WalletsController {
     constructor(private readonly walletService: WalletService) { }
+
+    @Get(':id')
+    @ApiOperation({ summary: 'Get wallet details by id' })
+    @ApiResponse({ status: 200, description: 'Wallet found.' })
+    async findOne(@Param('id') id: string) {
+        return this.walletService.getWalletById(id);
+    }
+
+    @Get(':id/signing-requests')
+    @ApiOperation({ summary: 'List signing requests for a wallet' })
+    @ApiResponse({ status: 200, description: 'Signing requests returned.' })
+    async listSigningRequests(@Param('id') id: string) {
+        return this.walletService.listSigningRequestsByWalletId(id);
+    }
 
     @Post()
     @ApiOperation({ summary: 'Derive a new wallet for an organization' })

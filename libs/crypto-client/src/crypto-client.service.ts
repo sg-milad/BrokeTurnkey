@@ -19,8 +19,8 @@ export class CryptoClientService implements OnModuleInit {
         this.logger.log(`Crypto service URL: ${this.baseUrl}`);
     }
 
-    async createWallet(orgId: string): Promise<CreateWalletResponse> {
-        return this.post<CreateWalletResponse>('/wallet/create', { orgId });
+    async createWallet(): Promise<CreateWalletResponse> {
+        return this.post<CreateWalletResponse>('/wallet/create', {});
     }
 
     async deriveWallet(

@@ -29,6 +29,14 @@ export class OrganizationsService {
         return this.organizationRepository.findBySlug(slug);
     }
 
+    async listWalletsByOrgId(id: string) {
+        return this.walletService.listWalletsByOrgId(id);
+    }
+
+    async listSigningRequestsByOrgId(id: string) {
+        return this.walletService.listSigningRequestsByOrgId(id);
+    }
+
     async onboard(id: string) {
         return this.walletService.onBoardOrganization(id);
     }

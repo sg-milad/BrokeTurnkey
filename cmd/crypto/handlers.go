@@ -16,10 +16,6 @@ import (
 // Request / Response Structs
 // --------------------------------------------------------------------------
 
-type CreateWalletRequest struct {
-	OrgID string `json:"orgId"`
-}
-
 type CreateWalletResponse struct {
 	EncryptedSeed string `json:"encryptedSeed"`
 	SeedNonce     string `json:"seedNonce"`
@@ -79,15 +75,9 @@ func HandleCreateWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateWalletRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if req.OrgID == "" {
-		writeError(w, http.StatusBadRequest, "orgId is required")
-		return
-	}
+	// Drain body so future callers don't need to send anything.
+	var ignored json.RawMessage
+	_ = json.NewDecoder(r.Body).Decode(&ignored)
 
 	// 1. Generate mnemonic and seed
 	mnemonic, err := GenerateMnemonic()

@@ -31,6 +31,22 @@ export class OrganizationsController {
         return this.organizationsService.findBySlug(slug);
     }
 
+    @Get(':id/wallets')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'List wallets by organization id' })
+    @ApiResponse({ status: 200, description: 'Wallets returned.' })
+    async listWallets(@Param('id') id: string) {
+        return this.organizationsService.listWalletsByOrgId(id);
+    }
+
+    @Get(':id/signing-requests')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'List signing requests by organization id' })
+    @ApiResponse({ status: 200, description: 'Signing requests returned.' })
+    async listSigningRequests(@Param('id') id: string) {
+        return this.organizationsService.listSigningRequestsByOrgId(id);
+    }
+
     @Post(':id/onboard')
     @HttpCode(200)
     @ApiOperation({ summary: 'Onboard an organization (create seed + first wallet)' })
