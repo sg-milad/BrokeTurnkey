@@ -55,8 +55,9 @@ type SignTxRequest struct {
 }
 
 type SignTxResponse struct {
-	Signature string `json:"signature"`
-	TxHash    string `json:"txHash"`
+	Signature string `json:"signature"` // 0x-prefixed 65-byte hex
+	TxHash    string `json:"txHash"`    // 0x-prefixed 32-byte keccak256 hex
+	RawTx     string `json:"rawTx"`     // 0x-prefixed RLP-encoded signed tx hex
 }
 
 type ErrorResponse struct {
@@ -176,7 +177,8 @@ func HandleDeriveWallet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// HandleSignTx decrypts the org seed, derives the key, hashes the tx, and signs it.
+// HandleSignTx decrypts the org seed, derives the key, hashes the tx, signs
+// it, and returns the signature, hash, and fully serialised signed transaction.
 func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -235,11 +237,21 @@ func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := SignTxResponse{
+	// 4. Serialise the signed transaction for direct broadcast.
+	// BuildSignedTx assembles the go-ethereum transaction with the signature
+	// attached and returns the canonical RLP bytes (type 0x02 prefix included).
+	rawTxBytes, err := BuildSignedTx(txFields, signature)
+	if err != nil {
+		log.Printf("[handler] BuildSignedTx failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "tx serialization error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SignTxResponse{
 		Signature: signature,
 		TxHash:    "0x" + hex.EncodeToString(txHash),
-	}
-	writeJSON(w, http.StatusOK, resp)
+		RawTx:     "0x" + hex.EncodeToString(rawTxBytes),
+	})
 }
 
 // --------------------------------------------------------------------------
