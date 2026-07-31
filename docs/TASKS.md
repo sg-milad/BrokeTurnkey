@@ -61,25 +61,111 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 ## Phase 3 — Transaction Lifecycle
 
-**Goal:** The system can estimate gas, manage nonces, broadcast signed transactions, and track confirmation status.
+**Goal:** The system can estimate gas, manage nonces, broadcast signed transactions, and track confirmation status with full error recovery.
 
 **Why it exists:** Signing a transaction is half the job. The platform must be able to take a signed transaction all the way to the chain and confirm it landed. Nonce management is a correctness requirement — without it, transactions collide or get stuck.
 
 ### Deliverables
 
+**Database schema updates**
+
+- `signing_requests` table gains columns:
+  - `status` — enum: `'pending' | 'signed' | 'broadcasted' | 'confirmed' | 'failed' | 'dropped'`
+  - `tx_hash` — set after successful broadcast (nullable)
+  - `block_number` — set after confirmation (nullable)
+  - `gas_used` — from receipt (nullable)
+  - `effective_gas_price` — from receipt (nullable)
+  - `error_message` — populated on failure (nullable)
+  - `error_type` — enum: `'retryable' | 'permanent' | 'unknown'` for classification
+  - `idempotency_key` — unique constraint, derived from `{ walletId, nonce, to, value, data }`
+- `wallet_nonces` table gains columns:
+  - `reserved_at` — timestamp when nonce was reserved (nullable)
+  - `reservation_expires_at` — TTL for nonce reservation (default: 5 minutes)
+  - `chain_id` — nonces are per-wallet per-chain
+
 **`@app/gas` — GasService**
 
-- `estimateFees(to, value, data, chainId)` — calls RPC for `eth_estimateGas` and `eth_feeHistory` (EIP-1559 fee data). Returns `{ gasLimit, maxFeePerGas, maxPriorityFeePerGas }`
-- `getNextNonce(walletId)` — reads and pessimistically locks the nonce row in `wallet_nonces`. Returns the current nonce for inclusion in the transaction
-- `broadcastTransaction(signedTxHex)` — submits via `eth_sendRawTransaction`. Returns `txHash`
-- `incrementNonce(walletId)` — increments `wallet_nonces` after confirmed broadcast
-- `waitForReceipt(txHash, timeoutMs)` — polls `eth_getTransactionReceipt` until confirmed or timeout
+- `estimateFees(to, value, data, chainId)` — calls RPC for `eth_estimateGas` and `eth_feeHistory` (EIP-1559 fee data). Applies a 20% buffer to gas limit for safety. Returns `{ gasLimit, maxFeePerGas, maxPriorityFeePerGas }`
+- `reserveNonce(walletId, chainId)` — atomically increments `wallet_nonces.next_nonce` within a transaction and returns the reserved value. Sets `reserved_at` and `reservation_expires_at`. If reservation expires without broadcast, a background job releases it
+- `releaseNonce(walletId, chainId, nonce)` — decrements nonce if reservation expired or broadcast failed before confirmation. Called by cleanup job
+- `confirmNonce(walletId, chainId, nonce)` — marks nonce as permanently used after receipt confirmation. Clears reservation fields
+- `getRpcProvider(chainId)` — returns an RPC provider from a configured list with failover. Tries providers in order, skips failed ones, rotates on errors
+- `broadcastTransaction(signedTxHex, chainId)` — submits via `eth_sendRawTransaction` using the selected RPC provider. Returns `txHash`. Implements retry logic for transient network errors (up to 3 attempts with exponential backoff)
+- `waitForReceipt(txHash, chainId, timeoutMs)` — polls `eth_getTransactionReceipt` every 2 seconds until confirmed or timeout. After timeout, checks `eth_getTransactionByHash` to determine if tx is pending or dropped
+- `classifyError(error)` — categorizes RPC/broadcast errors into `'retryable'` (network timeout, RPC down), `'permanent'` (insufficient funds, invalid signature, contract revert), or `'unknown'`
+- `speedUpTransaction(walletId, chainId, originalTxHash, multiplier)` — creates a replacement transaction with higher gas (multiplier applied to maxFee and maxPriorityFee). Uses same nonce. Requires original tx to still be pending
+
+**Background jobs**
+
+- **Nonce reservation cleanup** — runs every 60 seconds, finds expired reservations (`reservation_expires_at < NOW()`), releases them by decrementing nonce, updates `signing_requests.status = 'dropped'`
+- **Pending transaction monitor** — runs every 30 seconds, checks all `signing_requests` with `status = 'broadcasted'` and no receipt. Polls RPC to detect dropped transactions (not in mempool after 10 minutes), marks as `'dropped'`, releases nonce for retry
+- **Stuck transaction detector** — identifies transactions pending > 5 minutes with low gas. Emits alert and suggests speed-up parameters
 
 **Updated `POST /wallets/:id/sign` flow**
 
-The sign endpoint now runs the full lifecycle: estimate fees → get nonce → call Go sidecar to sign → broadcast → wait for receipt → return `{ txHash, receipt }`. The `wallet_nonces` table is the source of truth for pending nonces.
+The sign endpoint now runs the full lifecycle with idempotency and error recovery:
 
-**Done when:** A signed transaction reaches a testnet (Base Sepolia) and `eth_getTransactionReceipt` returns a success receipt. Nonce increments correctly in the database. A second transaction from the same wallet submits without collision.
+1. **Idempotency check** — compute key from `{ walletId, to, value, data, chainId }`. If a signing request with this key exists and is not `'failed'`, return it immediately
+2. **Estimate fees** — call `estimateFees` with 20% gas buffer
+3. **Reserve nonce** — call `reserveNonce` atomically. Creates `signing_requests` row with `status = 'pending'`
+4. **Sign transaction** — call Go sidecar with nonce and fee params. On success, update `status = 'signed'`
+5. **Broadcast** — call `broadcastTransaction` with retry logic. On success, set `tx_hash`, update `status = 'broadcasted'`. On permanent failure, set `status = 'failed'`, release nonce, return error. On retryable failure after max retries, set `status = 'failed'`, release nonce
+6. **Wait for receipt** — call `waitForReceipt`. On confirmation, set `block_number`, `gas_used`, `effective_gas_price`, update `status = 'confirmed'`, call `confirmNonce`. On timeout with tx still pending, leave as `'broadcasted'` for background monitor. On timeout with tx dropped, set `status = 'dropped'`, release nonce
+7. **Return** — `{ txHash, status, receipt? }`
+
+All steps are wrapped in a database transaction where appropriate. Nonce reservation and signing request creation happen atomically.
+
+**RPC configuration**
+
+- Multiple RPC providers per chain configured via environment variables (e.g., `RPC_BASE_SEPOLIA_1`, `RPC_BASE_SEPOLIA_2`)
+- Provider health checked on startup and periodically
+- Automatic failover: if primary provider fails 3 consecutive requests, switch to secondary
+- Rate limiting awareness: respect provider rate limits, implement request queuing if needed
+
+**Error handling strategy**
+
+- **Retryable errors** (RPC timeout, network error): retry up to 3 times with exponential backoff (1s, 2s, 4s). If still failing, mark as `'failed'` with `error_type = 'retryable'`, release nonce
+- **Permanent errors** (insufficient funds, invalid signature, nonce too low): immediately mark as `'failed'` with `error_type = 'permanent'`, release nonce, return descriptive error to client
+- **Unknown errors**: mark as `'failed'` with `error_type = 'unknown'`, release nonce, log for investigation
+- **Timeout during waitForReceipt**: check if tx exists on-chain. If yes, leave as `'broadcasted'` for background monitor. If no, mark as `'dropped'`, release nonce
+
+**API response format**
+
+```json
+{
+  "signingRequestId": "uuid",
+  "status": "confirmed",
+  "txHash": "0x...",
+  "nonce": 42,
+  "blockNumber": 12345678,
+  "gasUsed": "21000",
+  "effectiveGasPrice": "30000000000",
+  "idempotencyKey": "hash-of-inputs"
+}
+```
+
+For failures:
+
+```json
+{
+  "signingRequestId": "uuid",
+  "status": "failed",
+  "errorType": "permanent",
+  "errorMessage": "insufficient funds for gas * price + value",
+  "nonceReleased": true
+}
+```
+
+**Done when:**
+- A signed transaction reaches a testnet (Base Sepolia) and `eth_getTransactionReceipt` returns a success receipt
+- Nonce increments correctly in the database and is never reused
+- A second transaction from the same wallet submits without collision
+- A failed broadcast releases the nonce for reuse
+- An expired nonce reservation is automatically cleaned up
+- A stuck transaction is detected and reported
+- Duplicate signing requests return the existing result (idempotency)
+- RPC failover works when primary provider is down
+- Error classification correctly distinguishes retryable vs permanent failures
 
 ---
 

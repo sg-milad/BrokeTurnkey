@@ -11,4 +11,5 @@ export const appConfig = registerAs('app', () => ({
         user: process.env.DB_USER ?? 'postgres',
         password: process.env.DB_PASSWORD ?? 'postgres',
     },
+    rpcUrl: process.env.RPC_URL,
 }));
