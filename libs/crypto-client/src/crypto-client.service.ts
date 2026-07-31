@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
     CreateWalletResponse,
     DeriveWalletResponse,
-    SignTransactionResponse,
+    SignTransactionResult,
     TxFields,
 } from './interfaces/crypto-client.interfaces';
 
@@ -43,8 +43,8 @@ export class CryptoClientService implements OnModuleInit {
         encryptedDek: string,
         derivationPath: string,
         txFields: TxFields,
-    ): Promise<SignTransactionResponse> {
-        return this.post<SignTransactionResponse>('/wallet/sign', {
+    ): Promise<SignTransactionResult> {
+        return this.post('/wallet/sign', {
             encryptedSeed,
             seedNonce,
             encryptedDek,

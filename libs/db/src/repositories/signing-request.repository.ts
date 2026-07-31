@@ -4,6 +4,15 @@ import { ISigningRequestRepository } from '../repositories/interfaces/signing-re
 import { SigningRequest, NewSigningRequest, signing_requests } from '../schema/signing-requests';
 import { eq, desc } from 'drizzle-orm';
 import { DRIZZLE_CLIENT } from '../constants';
+
+interface SigningRequestUpdate {
+    tx_hash?: string;
+    signature?: string;
+    status?: string;
+    failure_reason?: string;
+    signed_at?: Date;
+}
+
 @Injectable()
 export class SigningRequestRepository implements ISigningRequestRepository {
     constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }
@@ -32,5 +41,15 @@ export class SigningRequestRepository implements ISigningRequestRepository {
     async create(data: NewSigningRequest): Promise<SigningRequest> {
         const result = await this.db.insert(signing_requests).values(data).returning();
         return result[0];
+    }
+    async update(id: string, fields: SigningRequestUpdate): Promise<void> {
+        await this.db
+            .update(signing_requests)
+            .set({
+                ...fields,
+                // Drizzle needs explicit column references for timestamp fields
+                ...(fields.signed_at ? { signed_at: fields.signed_at } : {}),
+            })
+            .where(eq(signing_requests.id, id));
     }
 }
