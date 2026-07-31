@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"fmt"
 	"os"
 	"testing"
 
@@ -16,15 +15,21 @@ func loadEnv(t *testing.T) {
 	// godotenv.Load does not overwrite vars already set in the environment,
 	// so CI can inject them directly without a file being present.
 	_ = godotenv.Load("../../.env")
-	t.Logf("VAULT_ADDR     = %s", os.Getenv("VAULT_ADDR"))
-	t.Logf("VAULT_ROLE_ID  = %s", os.Getenv("VAULT_ROLE_ID"))
-	t.Logf("VAULT_SECRET_ID = %s...", os.Getenv("VAULT_SECRET_ID")[:8]) // first 8 chars only
+
 	required := []string{"VAULT_ADDR", "VAULT_ROLE_ID", "VAULT_SECRET_ID"}
 	for _, key := range required {
 		if os.Getenv(key) == "" {
-			fmt.Println("ens", os.Getenv(key))
 			t.Skipf("skipping vault integration test: %s not set", key)
 		}
+	}
+
+	t.Logf("VAULT_ADDR      = %s", os.Getenv("VAULT_ADDR"))
+	t.Logf("VAULT_ROLE_ID   = %s", os.Getenv("VAULT_ROLE_ID"))
+	secretID := os.Getenv("VAULT_SECRET_ID")
+	if len(secretID) >= 8 {
+		t.Logf("VAULT_SECRET_ID = %s...", secretID[:8]) // first 8 chars only
+	} else {
+		t.Logf("VAULT_SECRET_ID = %s", secretID)
 	}
 
 	// Set the package-level vaultAddr used by all vault.go functions.

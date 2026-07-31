@@ -23,7 +23,10 @@ type TxFields struct {
 	Data                 []byte
 }
 
-// BuildTxHash constructs the EIP-1559 signing hash (unchanged).
+// BuildTxHash constructs the EIP-1559 signing hash using the London signer.
+// For typed transactions (EIP-1559, EIP-2930, etc.), MarshalBinary includes
+// signature placeholder bytes which change the hash. We must use the signer's
+// Hash method to get the correct pre-signature hash.
 func BuildTxHash(fields TxFields) ([]byte, error) {
 	var toAddr *common.Address
 	if fields.To != "" {
@@ -42,12 +45,10 @@ func BuildTxHash(fields TxFields) ([]byte, error) {
 		Data:      fields.Data,
 	})
 
-	encodedTx, err := tx.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("marshal tx to binary: %w", err)
-	}
+	signer := types.NewLondonSigner(fields.ChainId)
+	hash := signer.Hash(tx)
 
-	return crypto.Keccak256(encodedTx), nil
+	return hash.Bytes(), nil
 }
 
 // SignTxHash signs a 32-byte transaction hash using secp256k1 (unchanged).
@@ -85,12 +86,6 @@ func BuildSignedTx(fields TxFields, signatureHex string) ([]byte, error) {
 		return nil, fmt.Errorf("signature must be 65 bytes, got %d", len(sigBytes))
 	}
 
-	// go-ethereum's WithSignature expects the signature in [R || S || V] order
-	// where V is the recovery ID (0 or 1) — exactly what SignTxHash produces.
-	r := new(big.Int).SetBytes(sigBytes[:32])
-	s := new(big.Int).SetBytes(sigBytes[32:64])
-	v := new(big.Int).SetBytes(sigBytes[64:]) // 0 or 1 for EIP-1559
-
 	var toAddr *common.Address
 	if fields.To != "" {
 		addr := common.HexToAddress(fields.To)
@@ -108,10 +103,13 @@ func BuildSignedTx(fields TxFields, signatureHex string) ([]byte, error) {
 		Data:      fields.Data,
 	})
 
-	// Attach the signature. For EIP-1559 (type 2) transactions the signer
-	// is types.NewLondonSigner; it accepts V as 0 or 1 directly.
+	// Pass sigBytes directly to WithSignature. crypto.Sign returns exactly
+	// R[32] || S[32] || V[1] with all bytes present including leading zeros.
+	// Splitting into big.Int and calling .Bytes() would strip leading zeros
+	// from R or S, corrupting the signature and causing sender recovery to
+	// return the wrong address.
 	signer := types.NewLondonSigner(fields.ChainId)
-	signedTx, err := unsignedTx.WithSignature(signer, append(append(r.Bytes(), s.Bytes()...), byte(v.Uint64())))
+	signedTx, err := unsignedTx.WithSignature(signer, sigBytes)
 	if err != nil {
 		return nil, fmt.Errorf("attach signature to tx: %w", err)
 	}

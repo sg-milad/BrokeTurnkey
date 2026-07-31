@@ -76,9 +76,13 @@ func HandleCreateWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Drain body so future callers don't need to send anything.
-	var ignored json.RawMessage
-	_ = json.NewDecoder(r.Body).Decode(&ignored)
+	// Validate that the request body is valid JSON (even though we don't use it).
+	// This ensures clients send well-formed requests and prevents confusion.
+	var body json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
 
 	// 1. Generate mnemonic and seed
 	mnemonic, err := GenerateMnemonic()

@@ -156,25 +156,6 @@ func TestHandleCreateWallet_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestHandleCreateWallet_MissingOrgId(t *testing.T) {
-	body, _ := json.Marshal(map[string]string{})
-	req := httptest.NewRequest(http.MethodPost, "/wallet/create", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	HandleCreateWallet(w, req)
-
-	resp := w.Result()
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
-	}
-	var errResp ErrorResponse
-	json.NewDecoder(resp.Body).Decode(&errResp)
-	if !strings.Contains(errResp.Error, "orgId") {
-		t.Errorf("expected error about missing orgId, got: %s", errResp.Error)
-	}
-}
-
 func TestHandleCreateWallet_InvalidJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/wallet/create", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
