@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { CryptoClientService } from '@app/crypto-client';
-import { GasService } from '@app/gas';
+import { GasService, ErrorType, classifyError } from '@app/gas';
 import {
     organizationSeedRepository,
     WalletRepository,
@@ -9,6 +9,7 @@ import {
     UserRepository,
 } from '@app/db/repositories';
 import { TxFields } from '@app/crypto-client/interfaces/crypto-client.interfaces';
+import { createHash } from 'crypto';
 
 // Fields the caller provides. Gas fields are optional — GasService fills them in.
 export interface SignRequest {
@@ -28,9 +29,13 @@ export interface SignResult {
     receipt: {
         blockNumber: number;
         status: number;
+        gasUsed?: string;
+        effectiveGasPrice?: string;
     } | null;
-    status: 'confirmed' | 'timeout';
+    status: 'confirmed' | 'timeout' | 'failed';
     signingRequestId: string;
+    errorType?: ErrorType;
+    errorMessage?: string;
 }
 
 @Injectable()
@@ -166,7 +171,16 @@ export class WalletService {
         if (!wallet) throw new NotFoundException(`Wallet "${walletId}" not found`);
         if (wallet.org_id !== orgId) throw new BadRequestException('Wallet does not belong to this org');
 
-        // 2. Estimate fees if not provided by caller
+        // 2. Idempotency check - compute key from request params
+        const idempotencyKey = this.computeIdempotencyKey(walletId, req);
+        const existingRequest = await this.signingRequestRepo.findByIdempotencyKey(idempotencyKey);
+
+        if (existingRequest && existingRequest.status !== 'failed') {
+            this.logger.log(`Returning existing signing request ${existingRequest.id} for idempotency key ${idempotencyKey}`);
+            return this.buildSignResultFromRequest(existingRequest);
+        }
+
+        // 3. Estimate fees if not provided by caller
         const fees = await this.gasService.estimateFees(
             req.to,
             req.value,
@@ -179,7 +193,7 @@ export class WalletService {
         const maxFeePerGas = req.maxFeePerGas ?? fees.maxFeePerGas;
         const maxPriorityFeePerGas = req.maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
 
-        // 3. Get + lock nonce (pessimistic lock held until after broadcast)
+        // 4. Get + lock nonce
         const nonce = await this.gasService.getNextNonce(walletId, req.chainId);
 
         const txFields: TxFields = {
@@ -193,17 +207,16 @@ export class WalletService {
             data: req.data,
         };
 
-        // 4. Write a pending signing_request record before touching the signer.
-        //    If the process crashes after signing but before broadcast, this row
-        //    surfaces the in-flight transaction for manual investigation.
+        // 5. Create pending signing_request with idempotency key
         const signingRequest = await this.signingRequestRepo.create({
             org_id: orgId,
             wallet_id: walletId,
             tx_payload: JSON.parse(JSON.stringify(txFields)),
             status: 'pending',
+            idempotency_key: idempotencyKey,
         });
 
-        // 5. Sign via Go sidecar — returns signature, txHash, rawTx
+        // 6. Sign via Go sidecar
         let signResult: Awaited<ReturnType<CryptoClientService['signTransaction']>>;
         try {
             signResult = await this.cryptoClient.signTransaction(
@@ -214,14 +227,16 @@ export class WalletService {
                 txFields,
             );
         } catch (err) {
+            const errorType = classifyError(err as Error);
             await this.signingRequestRepo.update(signingRequest.id, {
                 status: 'failed',
                 failure_reason: (err as Error).message,
+                error_type: errorType,
             });
             throw err;
         }
 
-        // 6. Update signing_request with the hash + signature now that signing succeeded
+        // 7. Update signing_request with hash + signature
         await this.signingRequestRepo.update(signingRequest.id, {
             tx_hash: signResult.txHash,
             signature: signResult.signature,
@@ -229,45 +244,68 @@ export class WalletService {
             signed_at: new Date(),
         });
 
-        // 7. Broadcast
+        // 8. Broadcast with retry
         try {
             await this.gasService.broadcastTransaction(signResult.rawTx);
+
+            await this.signingRequestRepo.update(signingRequest.id, {
+                status: 'broadcasted',
+                broadcasted_at: new Date(),
+            });
         } catch (err) {
+            const errorType = classifyError(err as Error);
             await this.signingRequestRepo.update(signingRequest.id, {
                 status: 'failed',
                 failure_reason: `broadcast failed: ${(err as Error).message}`,
+                error_type: errorType,
             });
             throw err;
         }
 
-        // 8. Nonce increment — only after successful broadcast
+        // 9. Increment nonce only after successful broadcast
         await this.gasService.incrementNonce(walletId, req.chainId);
 
-        // 9. Poll for receipt
+        // 10. Poll for receipt
         const { receipt, timedOut } = await this.gasService.waitForReceipt(
             signResult.txHash,
             60_000,
         );
 
-        // 10. Final signing_request status
-        const finalStatus = timedOut ? 'timeout' : receipt?.status === 1 ? 'confirmed' : 'failed';
+        // 11. Final status and update
+        let finalStatus: 'confirmed' | 'timeout' | 'failed' = 'timeout';
+        let errorType: ErrorType | undefined;
+        let errorMessage: string | undefined;
 
-        await this.signingRequestRepo.update(signingRequest.id, {
-            status: finalStatus,
-            ...(timedOut ? { failure_reason: 'receipt polling timed out' } : {}),
-        });
+        if (!timedOut && receipt) {
+            finalStatus = receipt.status === 1 ? 'confirmed' : 'failed';
 
-        // 11. Audit log
+            await this.signingRequestRepo.update(signingRequest.id, {
+                status: finalStatus,
+                block_number: receipt.blockNumber,
+                gas_used: receipt.gasUsed || null,
+                effective_gas_price: receipt.effectiveGasPrice || null,
+                confirmed_at: finalStatus === 'confirmed' ? new Date() : undefined,
+            });
+        } else if (timedOut) {
+            errorMessage = 'receipt polling timed out';
+            await this.signingRequestRepo.update(signingRequest.id, {
+                status: 'timeout',
+                failure_reason: errorMessage,
+            });
+        }
+
+        // 12. Audit log
         await this.auditLogRepo.create({
             org_id: orgId,
             wallet_id: walletId,
             event: 'tx_signed',
-            status: timedOut ? 'timeout' : 'success',
+            status: finalStatus === 'confirmed' ? 'success' : finalStatus,
             metadata: {
                 txHash: signResult.txHash,
                 signingRequestId: signingRequest.id,
                 chainId: req.chainId,
                 finalStatus,
+                errorType,
             },
         });
 
@@ -275,10 +313,41 @@ export class WalletService {
             txHash: signResult.txHash,
             signature: signResult.signature,
             receipt: receipt
-                ? { blockNumber: receipt.blockNumber, status: receipt.status }
+                ? {
+                    blockNumber: receipt.blockNumber,
+                    status: receipt.status,
+                    gasUsed: receipt.gasUsed,
+                    effectiveGasPrice: receipt.effectiveGasPrice,
+                }
                 : null,
-            status: timedOut ? 'timeout' : 'confirmed',
+            status: finalStatus,
             signingRequestId: signingRequest.id,
+            errorType,
+            errorMessage,
+        };
+    }
+
+    private computeIdempotencyKey(walletId: string, req: SignRequest): string {
+        const payload = `${walletId}:${req.chainId}:${req.to}:${req.value}:${req.data}`;
+        return createHash('sha256').update(payload).digest('hex');
+    }
+
+    private buildSignResultFromRequest(request: any): SignResult {
+        return {
+            txHash: request.tx_hash || '',
+            signature: request.signature || '',
+            receipt: request.block_number
+                ? {
+                    blockNumber: request.block_number,
+                    status: request.status === 'confirmed' ? 1 : 0,
+                    gasUsed: request.gas_used,
+                    effectiveGasPrice: request.effective_gas_price,
+                }
+                : null,
+            status: request.status === 'timeout' ? 'timeout' : request.status === 'confirmed' ? 'confirmed' : 'failed',
+            signingRequestId: request.id,
+            errorType: request.error_type as ErrorType | undefined,
+            errorMessage: request.failure_reason || undefined,
         };
     }
 }

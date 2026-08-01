@@ -171,7 +171,7 @@ scripts/
 1. Start all containers: `docker compose up -d`
 2. Initialise and unseal Vault (see `docs/VAULT_INIT.md`)
 3. Run database migrations: `pnpm db:push`
-4. Start the NestJS API: `pnpm run start:dev`
+4. Start the NestJS API: `pnpm run start:dev api`
 5. The Go crypto service starts automatically as a Docker container
 6. Call `POST /organizations/:id/onboard` to onboard your first organization
 

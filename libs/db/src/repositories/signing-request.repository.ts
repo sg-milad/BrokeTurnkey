@@ -10,7 +10,13 @@ interface SigningRequestUpdate {
     signature?: string;
     status?: string;
     failure_reason?: string;
+    error_type?: string;
+    block_number?: number | null;
+    gas_used?: string | null;
+    effective_gas_price?: string | null;
     signed_at?: Date;
+    broadcasted_at?: Date;
+    confirmed_at?: Date;
 }
 
 @Injectable()
@@ -19,6 +25,11 @@ export class SigningRequestRepository implements ISigningRequestRepository {
 
     async findById(id: string): Promise<SigningRequest | undefined> {
         const result = await this.db.select().from(signing_requests).where(eq(signing_requests.id, id));
+        return result[0];
+    }
+
+    async findByIdempotencyKey(key: string): Promise<SigningRequest | undefined> {
+        const result = await this.db.select().from(signing_requests).where(eq(signing_requests.idempotency_key, key));
         return result[0];
     }
 
@@ -49,6 +60,8 @@ export class SigningRequestRepository implements ISigningRequestRepository {
                 ...fields,
                 // Drizzle needs explicit column references for timestamp fields
                 ...(fields.signed_at ? { signed_at: fields.signed_at } : {}),
+                ...(fields.broadcasted_at ? { broadcasted_at: fields.broadcasted_at } : {}),
+                ...(fields.confirmed_at ? { confirmed_at: fields.confirmed_at } : {}),
             })
             .where(eq(signing_requests.id, id));
     }
