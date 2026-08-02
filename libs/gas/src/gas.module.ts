@@ -7,4 +7,4 @@ import { GasService } from './gas.service';
   providers: [GasService],
   exports: [GasService],
 })
-export class GasModule { }
+export class GasModule {}

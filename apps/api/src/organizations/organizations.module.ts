@@ -5,9 +5,9 @@ import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
 
 @Module({
-    imports: [DatabaseModule, WalletModule],
-    controllers: [OrganizationsController],
-    providers: [OrganizationsService],
-    exports: [OrganizationsService],
+  imports: [DatabaseModule, WalletModule],
+  controllers: [OrganizationsController],
+  providers: [OrganizationsService],
+  exports: [OrganizationsService],
 })
-export class OrganizationsModule { }
+export class OrganizationsModule {}

@@ -4,8 +4,8 @@ export * from './crypto-client.service';
 export { CryptoClientModule } from './crypto-client.module';
 export { CryptoClientService } from './crypto-client.service';
 export type {
-    TxFields,
-    CreateWalletResponse,
-    DeriveWalletResponse,
-    SignTransactionResult
+  TxFields,
+  CreateWalletResponse,
+  DeriveWalletResponse,
+  SignTransactionResult,
 } from './interfaces/crypto-client.interfaces';

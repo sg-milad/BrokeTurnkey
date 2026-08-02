@@ -3,7 +3,7 @@ import { WalletsController } from './wallets.controller';
 import { WalletModule } from '@app/wallet';
 
 @Module({
-    imports: [WalletModule],
-    controllers: [WalletsController],
+  imports: [WalletModule],
+  controllers: [WalletsController],
 })
-export class WalletsModule { }
+export class WalletsModule {}

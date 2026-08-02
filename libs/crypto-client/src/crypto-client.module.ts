@@ -6,4 +6,4 @@ import { CryptoClientService } from './crypto-client.service';
   providers: [CryptoClientService],
   exports: [CryptoClientService],
 })
-export class CryptoClientModule { }
+export class CryptoClientModule {}

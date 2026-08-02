@@ -67,7 +67,17 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 ### Deliverables
 
-**Database schema updates**
+**Database schema prerequisites (Phase 1)**
+
+The following tables must exist before Phase 4 begins:
+
+- `api_keys` table with columns: `id`, `org_id`, `name`, `public_key`, `key_id`, `scopes` (jsonb array, e.g., `["tx:sign", "key:write"]`), `status`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`
+- `policies` table with columns: `id`, `org_id`, `name`, `description`, `rule_type`, `rule_config` (jsonb), `applies_to`, `target_id`, `priority`, `status`, `created_at`, `updated_at`
+- `audit_log` table with columns: `id`, `org_id`, `user_id`, `wallet_id`, `api_key_id`, `event`, `status`, `metadata` (jsonb), `ip_address`, `user_agent`, `created_at`
+- `users` table with columns: `id`, `org_id`, `external_id`, `email`, `role`, `status`, `created_at`, `updated_at`
+- `organizations` table gains column: `bootstrap_token_hash` (varchar, nullable) — stores SHA-256 hash of one-time bootstrap token
+
+**Database schema updates (Phase 3 → Phase 4)**
 
 - `signing_requests` table gains columns:
   - `status` — enum: `'pending' | 'signed' | 'broadcasted' | 'confirmed' | 'failed' | 'dropped'`
@@ -177,16 +187,26 @@ For failures:
 
 ### Deliverables
 
+**`@app/db/repositories` — New repositories**
+
+- `PolicyRepository` — CRUD operations for policies, query by org_id and status
+- `ApiKeyRepository` — CRUD operations for API keys, lookup by key_id, scope validation helpers
+
 **`@app/policy` — PolicyEngine**
 
-- `evaluate(orgId, walletId, txPayload)` → `{ decision: 'allow' | 'deny', reason?: string }`
+- `PolicyService` with methods:
+  - `createPolicy(orgId, policyData)` — create a new policy rule
+  - `listPolicies(orgId)` — list all active policies for an org
+  - `deletePolicy(orgId, policyId)` — delete a policy
+  - `evaluate(orgId, walletId, txPayload)` → `{ decision: 'allow' | 'deny', reason?: string }`
 - Rule types evaluated in order:
   - Address blocklist — reject if `to` is on the org's blocklist
   - Address allowlist — reject if `to` is not on the org's allowlist (when allowlist is non-empty)
   - Per-transaction spend limit — reject if `value` exceeds the configured maximum
   - Rolling 24-hour spend window — reject if cumulative value in the last 24h would exceed the limit
   - Time lock — reject if current UTC time is outside the configured signing window
-- Rules stored in the `policies` table. Evaluated in NestJS before any call to the Go service
+- Rules stored in the `policies` table. Evaluated in NestJS BEFORE nonce reservation and signing request creation to avoid wasting nonces on denied transactions
+- Policy evaluation result logged to `audit_log` with event `policy_evaluation`
 
 **API routes for policy management**
 
@@ -196,26 +216,48 @@ For failures:
 
 **`@app/auth` — StampVerifier**
 
+- `AuthService` with methods:
+  - `registerApiKey(orgId, name, publicKey, scopes)` — register a new API key (requires bootstrap token or key:write scope)
+  - `listApiKeys(orgId)` — list active API keys
+  - `revokeApiKey(orgId, keyId)` — revoke an API key
+  - `validateBootstrapToken(orgId, token)` — validate one-time bootstrap token
 - `StampVerifierGuard` — NestJS guard applied globally
 - Parses `X-Stamp: <base64url(sig)>.<timestamp_ms>.<key_id>`
 - Rejects if timestamp is older than 5 minutes or more than 30 seconds in the future
-- Looks up `api_keys` by `key_id`, checks `status = active` and `expires_at`
+- Looks up `api_keys` by `key_id`, checks `status = active`, `expires_at`, and validates scopes for sensitive operations
 - Reconstructs the signed payload: `timestamp + "." + base64url(SHA-256(body))`
 - Verifies P-256 (ES256) signature against the registered public key
-- Attaches `{ orgId, apiKeyId }` to the request context on success
+- Attaches `{ orgId, apiKeyId, scopes }` to the request context on success
+- Scope validation: operations like creating/deleting API keys require `key:write` scope; signing requires `tx:sign` scope
 
 **API key management routes**
 
-- `POST /organizations/:id/api-keys` — register a public key. First key uses a one-time bootstrap token (`X-Bootstrap-Token`). Subsequent keys require a valid stamp from a key with `key:write` scope
+- `POST /organizations/:id/api-keys` — register a public key with scopes (e.g., `["tx:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org onboarding and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
 - `GET /organizations/:id/api-keys` — list active keys
-- `DELETE /organizations/:id/api-keys/:keyId` — revoke a key
+- `DELETE /organizations/:id/api-keys/:keyId` — revoke a key (requires `key:write` scope)
 
-**User management routes**
+**Bootstrap token mechanism**
 
-- `POST /organizations/:id/users`
-- `GET /organizations/:id/users`
-- `GET /organizations/:id/users/:userId`
-- `DELETE /organizations/:id/users/:userId`
+- Generated during `POST /organizations/:id/onboard` as a UUID v4
+- Stored as SHA-256 hash in `organizations.bootstrap_token_hash`
+- Returned once in the onboard response (never stored or logged after that)
+- Valid for single use only — cleared after first API key registration
+- Passed via `X-Bootstrap-Token` header (no signature required)
+
+**User management**
+
+- `UserService` in `@app/users` with methods:
+  - `createUser(orgId, externalId, email?, role?)` — create a user
+  - `listUsers(orgId)` — list all users for an org
+  - `getUser(userId)` — get user details
+  - `deleteUser(orgId, userId)` — delete a user (requires key:write scope)
+
+**API routes for user management**
+
+- `POST /organizations/:id/users` — create a user (requires `key:write` scope)
+- `GET /organizations/:id/users` — list all users
+- `GET /organizations/:id/users/:userId` — get user details
+- `DELETE /organizations/:id/users/:userId` — delete a user (requires `key:write` scope)
 
 **Audit log**
 

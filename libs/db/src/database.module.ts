@@ -17,7 +17,6 @@ const walletNonceRepositoryProvider = {
   useClass: WalletNonceRepository,
 };
 
-
 @Global()
 @Module({
   providers: [
@@ -50,4 +49,4 @@ const walletNonceRepositoryProvider = {
     WALLET_NONCE_REPOSITORY,
   ],
 })
-export class DatabaseModule { }
+export class DatabaseModule {}

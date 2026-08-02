@@ -9,6 +9,5 @@ export class ApiController {
   constructor(
     private readonly apiService: ApiService,
     private readonly walletService: WalletService,
-  ) { }
-
+  ) {}
 }

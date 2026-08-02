@@ -12,7 +12,7 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app as any, config);
   SwaggerModule.setup('docs', app as any, document);
-  console.log("Swagger docs available at: http://localhost:3000/docs");
+  console.log('Swagger docs available at: http://localhost:3000/docs');
   await app.listen(process.env.port ?? 3000);
 }
 bootstrap();

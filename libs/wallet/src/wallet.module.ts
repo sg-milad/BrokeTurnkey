@@ -9,5 +9,4 @@ import { GasModule } from '@app/gas';
   providers: [WalletService],
   exports: [WalletService],
 })
-export class WalletModule { }
-
+export class WalletModule {}

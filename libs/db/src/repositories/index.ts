@@ -5,4 +5,6 @@ export * from './wallet.repository';
 export * from './signing-request.repository';
 export * from './audit-log.repository';
 export * from './wallet-nonce.repository';
+export * from './policy.repository';
+export * from './api-key.repository';
 export * from './interfaces/wallet-nonce.repository.interface';

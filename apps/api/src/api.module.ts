@@ -14,8 +14,13 @@ import { OrganizationsModule } from './organizations/organizations.module';
       isGlobal: true,
       load: [appConfig],
       envFilePath: '.env',
-    }), DatabaseModule, WalletModule, OrganizationsModule, WalletsModule],
+    }),
+    DatabaseModule,
+    WalletModule,
+    OrganizationsModule,
+    WalletsModule,
+  ],
   controllers: [ApiController],
   providers: [ApiService],
 })
-export class ApiModule { }
+export class ApiModule {}
