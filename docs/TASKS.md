@@ -229,7 +229,10 @@ For failures:
 - Reconstructs the signed payload: `timestamp + "." + base64url(SHA-256(body))`
 - Verifies P-256 (ES256) signature against the registered public key
 - Attaches `{ orgId, apiKeyId, scopes }` to the request context on success
-- Scope validation: operations like creating/deleting API keys require `key:write` scope; signing requires `tx:sign` scope
+- Scope validation: operations like creating/deleting API keys require
+  `key:write` scope; signing requires `wallet:sign` scope. Scope names follow
+  `docs/STAMP_AUTH.md` (e.g. `wallet:create`, `wallet:sign`, `wallet:read`,
+  `policy:write`, `key:write`, `*`).
 
 **API key management routes**
 

@@ -1,18 +1,11 @@
 export interface IWalletNonceRepository {
   /**
-   * Returns the current nonce for the given wallet+chain pair, using a
-   * pessimistic lock (SELECT ... FOR UPDATE) to prevent concurrent requests
-   * from obtaining the same nonce.
+   * Atomically reserves and consumes the next nonce for the given wallet+chain
+   * pair. The increment happens in the same statement as the read, so
+   * concurrent callers always receive distinct nonces.
    *
-   * If no row exists yet, inserts one with nonce=0 and returns 0.
-   * The caller is responsible for calling incrementNonce() after a
-   * successful broadcast.
+   * The returned nonce is permanently consumed — callers must not retry with
+   * the same value after a failure.
    */
-  getAndLock(walletId: string, chainId: number): Promise<number>;
-
-  /**
-   * Atomically increments the nonce for the given wallet+chain pair by 1.
-   * Must be called only after a confirmed broadcast.
-   */
-  increment(walletId: string, chainId: number): Promise<void>;
+  reserve(walletId: string, chainId: number): Promise<number>;
 }

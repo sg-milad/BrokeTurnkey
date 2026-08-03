@@ -11,6 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UserService } from '@app/users';
 import { StampVerifierGuard } from '@app/auth';
+import { Scopes } from '@app/auth';
 
 @ApiTags('users')
 @Controller('organizations/:id/users')
@@ -19,6 +20,7 @@ export class UsersController {
 
   @Post()
   @UseGuards(StampVerifierGuard)
+  @Scopes('key:write')
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a user' })
   @ApiResponse({ status: 201, description: 'User created.' })
@@ -49,6 +51,7 @@ export class UsersController {
 
   @Delete(':userId')
   @UseGuards(StampVerifierGuard)
+  @Scopes('key:write')
   @HttpCode(200)
   @ApiOperation({ summary: 'Delete a user' })
   @ApiResponse({ status: 200, description: 'User deleted.' })

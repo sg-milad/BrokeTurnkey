@@ -5,17 +5,18 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiKeyRepository } from '@app/db/repositories';
-import { createHash } from 'crypto';
-import { verify } from 'crypto';
+import { createHash, verify } from 'crypto';
+
+// Request body this size or larger is rejected by the body parser before the
+// guard runs (express.json `limit` option). Keeping it in sync with main.ts.
+export const MAX_BODY_BYTES = 1024 * 1024;
 
 @Injectable()
 export class StampVerifierGuard implements CanActivate {
   constructor(private readonly apiKeyRepo: ApiKeyRepository) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context
-      .switchToHttp()
-      .getRequest<Record<string, unknown>>();
+    const request = context.switchToHttp().getRequest<Record<string, any>>();
     const headers = request.headers as Record<string, string>;
     const stamp = headers['x-stamp'];
 
@@ -59,24 +60,46 @@ export class StampVerifierGuard implements CanActivate {
       throw new UnauthorizedException('API key has expired');
     }
 
-    // Reconstruct signed payload: timestamp + "." + base64url(SHA-256(body))
-    const body = request.body ? JSON.stringify(request.body) : '';
-    const bodyHash = createHash('sha256').update(body).digest('base64url');
+    // Reconstruct the signed payload over the RAW request bytes, exactly as
+    // the client signed them (docs/STAMP_AUTH.md step 4). Never re-serialize
+    // request.body — JSON round-tripping (key order, number formatting,
+    // duplicate keys) would diverge from the signed bytes.
+    const rawBody = request.rawBody as Buffer | undefined;
+    const bodyHash = createHash('sha256')
+      .update(rawBody ?? Buffer.alloc(0))
+      .digest('base64url');
     const signedPayload = `${timestamp}.${bodyHash}`;
 
-    // Verify P-256 (ES256) signature
-    const signatureBuffer = Buffer.from(signatureB64, 'base64url');
+    // Decode and sanity-check the signature. Spec (docs/STAMP_AUTH.md):
+    // DER-encoded ES256. DER for P-256 is 70-72 bytes (68-75 including edge
+    // case encodings) — anything outside that range is malformed.
+    let signatureBuffer: Buffer;
+    try {
+      signatureBuffer = Buffer.from(signatureB64, 'base64url');
+    } catch {
+      throw new UnauthorizedException('Invalid signature encoding');
+    }
+    if (signatureBuffer.length < 68 || signatureBuffer.length > 75) {
+      throw new UnauthorizedException('Invalid signature length');
+    }
+
     const publicKey = apiKey.public_key;
 
-    const isValid = verify(
-      'sha256',
-      Buffer.from(signedPayload),
-      {
-        key: publicKey,
-        dsaEncoding: 'ieee-p1363',
-      },
-      signatureBuffer,
-    );
+    let isValid = false;
+    try {
+      isValid = verify(
+        'sha256',
+        Buffer.from(signedPayload),
+        {
+          key: publicKey,
+          dsaEncoding: 'der',
+        },
+        signatureBuffer,
+      );
+    } catch {
+      // Malformed public key or signature — treat as invalid, never crash.
+      throw new UnauthorizedException('Invalid signature');
+    }
 
     if (!isValid) {
       throw new UnauthorizedException('Invalid signature');
@@ -90,10 +113,15 @@ export class StampVerifierGuard implements CanActivate {
       scopes: apiKey.scopes as string[],
     };
 
-    // Update last_used_at
-    await this.apiKeyRepo.update(apiKey.id, {
-      last_used_at: new Date(),
-    });
+    // Update last_used_at — fire and forget, must not block or fail the
+    // request (docs/STAMP_AUTH.md step 6).
+    void this.apiKeyRepo
+      .update(apiKey.id, {
+        last_used_at: new Date(),
+      })
+      .catch(() => {
+        /* best-effort bookkeeping only */
+      });
 
     return true;
   }

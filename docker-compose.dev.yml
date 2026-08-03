@@ -1,0 +1,17 @@
+# Local development override — restores host-visible ports for tooling.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# The base compose file intentionally does NOT publish these ports:
+#   - vault 8200   (Vault UI / manual unseal)
+#   - postgres 5432 (psql, drizzle-kit studio, host-side db:push)
+# Reach the containers via docker exec whenever possible instead.
+services:
+  vault:
+    ports:
+      - "8200:8200"
+
+  postgres:
+    ports:
+      - "5432:5432"

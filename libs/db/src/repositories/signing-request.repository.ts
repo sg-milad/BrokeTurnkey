@@ -15,6 +15,7 @@ interface SigningRequestUpdate {
   status?: string;
   failure_reason?: string;
   error_type?: string;
+  tx_payload?: unknown;
   block_number?: number | null;
   gas_used?: string | null;
   effective_gas_price?: string | null;
@@ -67,17 +68,16 @@ export class SigningRequestRepository implements ISigningRequestRepository {
     return result[0];
   }
   async update(id: string, fields: SigningRequestUpdate): Promise<void> {
+    // Drop undefined values so callers can "clear" a column by passing
+    // undefined (e.g. failure_reason when reusing a failed request).
+    const set: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined) set[key] = value;
+    }
+
     await this.db
       .update(signing_requests)
-      .set({
-        ...fields,
-        // Drizzle needs explicit column references for timestamp fields
-        ...(fields.signed_at ? { signed_at: fields.signed_at } : {}),
-        ...(fields.broadcasted_at
-          ? { broadcasted_at: fields.broadcasted_at }
-          : {}),
-        ...(fields.confirmed_at ? { confirmed_at: fields.confirmed_at } : {}),
-      })
+      .set(set)
       .where(eq(signing_requests.id, id));
   }
 }

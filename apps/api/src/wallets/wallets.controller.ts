@@ -12,7 +12,7 @@ export class WalletsController {
   constructor(
     private readonly walletService: WalletService,
     private readonly signingService: SigningService,
-  ) { }
+  ) {}
 
   @Get(':id')
   @ApiOperation({ summary: 'Get wallet details by id' })
@@ -42,7 +42,9 @@ export class WalletsController {
 
   @Post(':id/sign-transaction')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Sign and broadcast a transaction (canonical route)' })
+  @ApiOperation({
+    summary: 'Sign and broadcast a transaction (canonical route)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Transaction signed and broadcast.',
@@ -64,7 +66,10 @@ export class WalletsController {
 
   @Post(':id/sign')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Sign and broadcast a transaction (backward-compatible alias for /sign-transaction)' })
+  @ApiOperation({
+    summary:
+      'Sign and broadcast a transaction (backward-compatible alias for /sign-transaction)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Transaction signed and broadcast.',

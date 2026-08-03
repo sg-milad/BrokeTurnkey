@@ -2,8 +2,10 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { hashTypedData, hashMessage } from 'viem';
 import type { TypedDataDefinition } from 'viem';
 import { CryptoClientService } from '@app/crypto-client';
@@ -27,11 +29,18 @@ export class SigningService {
     private readonly orgSeedRepo: organizationSeedRepository,
     private readonly walletRepo: WalletRepository,
     private readonly auditLogRepo: AuditLogRepository,
+    private readonly config: ConfigService,
   ) {}
 
   /**
    * Sign EIP-712 typed data. Constructs the hash using viem's hashTypedData,
    * then delegates to the Go sidecar for raw secp256k1 signing.
+   *
+   * sign-hash is an unrestricted signing oracle by design (the Go service
+   * signs whatever 32-byte hash it is given), so NestJS gates the surface:
+   * the EIP-712 domain must be on the configured allowlist before a hash is
+   * ever produced. Configure EIP712_DOMAIN_ALLOWLIST as a comma-separated
+   * list of allowed domain names; empty means "allow all" (default).
    */
   async signEip712(
     orgId: string,
@@ -39,6 +48,17 @@ export class SigningService {
     req: Eip712SignRequest,
   ): Promise<TypedSignResult> {
     const { seedRow, wallet } = await this.loadWallet(orgId, walletId);
+
+    const allowlist = this.getDomainAllowlist();
+    if (allowlist.length > 0) {
+      const domainName = (req.domain as Record<string, unknown> | undefined)
+        ?.name as string | undefined;
+      if (!domainName || !allowlist.includes(domainName)) {
+        throw new ForbiddenException(
+          `EIP-712 domain "${domainName ?? '(none)'}" is not allowlisted`,
+        );
+      }
+    }
 
     // Construct the EIP-712 hash in NestJS — Go is schema-unaware
     const hash = hashTypedData({
@@ -134,5 +154,13 @@ export class SigningService {
       throw new BadRequestException('Wallet does not belong to this org');
 
     return { seedRow, wallet };
+  }
+
+  private getDomainAllowlist(): string[] {
+    const raw = this.config.get<string>('EIP712_DOMAIN_ALLOWLIST') ?? '';
+    return raw
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
   }
 }

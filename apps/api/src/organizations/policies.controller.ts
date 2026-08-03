@@ -11,6 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PolicyService } from '@app/policy';
 import { StampVerifierGuard } from '@app/auth';
+import { Scopes } from '@app/auth';
 
 @ApiTags('policies')
 @Controller('organizations/:id/policies')
@@ -19,6 +20,7 @@ export class PoliciesController {
 
   @Post()
   @UseGuards(StampVerifierGuard)
+  @Scopes('policy:write')
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a policy' })
   @ApiResponse({ status: 201, description: 'Policy created.' })
@@ -58,6 +60,7 @@ export class PoliciesController {
 
   @Delete(':policyId')
   @UseGuards(StampVerifierGuard)
+  @Scopes('policy:write')
   @HttpCode(200)
   @ApiOperation({ summary: 'Delete a policy' })
   @ApiResponse({ status: 200, description: 'Policy deleted.' })

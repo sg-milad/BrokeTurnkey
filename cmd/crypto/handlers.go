@@ -10,7 +10,20 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 )
+
+// maxBodyBytes caps request bodies — the API is the only caller and its
+// payloads are small; anything larger is rejected before decoding.
+const maxBodyBytes = 1 << 20 // 1 MiB
+
+// decodeJSON reads a JSON body with a hard size cap. Returns an error that
+// handlers surface as a 400.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	return json.NewDecoder(r.Body).Decode(dst)
+}
 
 // --------------------------------------------------------------------------
 // Request / Response Structs
@@ -91,7 +104,7 @@ func HandleCreateWallet(w http.ResponseWriter, r *http.Request) {
 	// Validate that the request body is valid JSON (even though we don't use it).
 	// This ensures clients send well-formed requests and prevents confusion.
 	var body json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -163,7 +176,7 @@ func HandleDeriveWallet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req DeriveWalletRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -202,7 +215,7 @@ func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req SignTxRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -280,7 +293,7 @@ func HandleSignHash(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req SignHashRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -382,21 +395,45 @@ func parseDerivIndex(path string) (uint32, error) {
 }
 
 // parseTxFields safely maps the JSON request fields (strings for large ints)
-// into the exact types required by our crypto primitives.
+// into the exact types required by our crypto primitives. Every value is
+// range-checked before it can influence a signature.
 func parseTxFields(jsonTx TxFieldsJSON) (TxFields, error) {
+	if jsonTx.ChainId == 0 {
+		return TxFields{}, fmt.Errorf("chainId must be positive")
+	}
+
 	value, ok := new(big.Int).SetString(jsonTx.Value, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid tx value: %s", jsonTx.Value)
+	}
+	if value.Sign() < 0 {
+		return TxFields{}, fmt.Errorf("tx value must be non-negative")
 	}
 
 	maxFee, ok := new(big.Int).SetString(jsonTx.MaxFeePerGas, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid maxFeePerGas: %s", jsonTx.MaxFeePerGas)
 	}
+	if maxFee.Sign() <= 0 {
+		return TxFields{}, fmt.Errorf("maxFeePerGas must be positive")
+	}
 
 	maxPriority, ok := new(big.Int).SetString(jsonTx.MaxPriorityFeePerGas, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid maxPriorityFeePerGas: %s", jsonTx.MaxPriorityFeePerGas)
+	}
+	if maxPriority.Sign() < 0 {
+		return TxFields{}, fmt.Errorf("maxPriorityFeePerGas must be non-negative")
+	}
+
+	if jsonTx.GasLimit == 0 {
+		return TxFields{}, fmt.Errorf("gasLimit must be positive")
+	}
+
+	// `to` is optional (contract creation), but when present it must be a
+	// valid 40-hex-character address.
+	if jsonTx.To != "" && !common.IsHexAddress(jsonTx.To) {
+		return TxFields{}, fmt.Errorf("invalid to address: %s", jsonTx.To)
 	}
 
 	var data []byte

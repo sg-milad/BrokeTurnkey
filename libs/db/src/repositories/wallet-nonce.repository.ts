@@ -2,52 +2,36 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE_CLIENT } from '../constants';
 import type { DrizzleClient } from '../db';
-import { wallet_nonces } from '../schema';
-import type { IWalletNonceRepository } from './interfaces/wallet-nonce.repository.interface';
 
+/**
+ * Atomically reserves and consumes the next nonce for the wallet+chain pair.
+ *
+ * Uses a single INSERT ... ON CONFLICT upsert so the increment is atomic:
+ * concurrent callers can never observe the same nonce, regardless of how
+ * long the caller takes to sign and broadcast afterwards. The returned nonce
+ * is permanently consumed — a failed broadcast leaves a gap (Ethereum
+ * tolerates gaps; the guarantee that matters is that a nonce is never used
+ * twice).
+ *
+ * Returns the reserved nonce (the pre-increment value).
+ */
 @Injectable()
-export class WalletNonceRepository implements IWalletNonceRepository {
+export class WalletNonceRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
-  async getAndLock(walletId: string, chainId: number): Promise<number> {
-    // Run inside a transaction so the FOR UPDATE lock is held until the
-    // calling service has finished building and broadcasting the transaction.
-    // The transaction is committed by Drizzle when the callback returns.
-    return this.db.transaction(async (tx) => {
-      // Attempt a pessimistic lock on the existing row.
-      const rows = await tx.execute(
-        sql`SELECT nonce FROM wallet_nonces
-                    WHERE wallet_id = ${walletId} AND chain_id = ${chainId}
-                    FOR UPDATE`,
-      );
+  async reserve(walletId: string, chainId: number): Promise<number> {
+    const result = await this.db.execute(
+      sql`INSERT INTO wallet_nonces (wallet_id, chain_id, nonce)
+          VALUES (${walletId}, ${chainId}, 1)
+          ON CONFLICT (wallet_id, chain_id)
+          DO UPDATE SET nonce = wallet_nonces.nonce + 1, updated_at = now()
+          RETURNING nonce - 1 AS reserved`,
+    );
 
-      if (rows.rows.length > 0) {
-        return Number((rows.rows[0] as { nonce: number }).nonce);
-      }
-
-      // Row does not exist — this wallet has never transacted on this chain.
-      // Insert with nonce=0. Always start from 0 per product decision;
-      // wallets managed by WalletMVP are assumed to have no prior history.
-      await tx
-        .insert(wallet_nonces)
-        .values({
-          wallet_id: walletId,
-          chain_id: chainId,
-          nonce: 0,
-        })
-        .onConflictDoNothing(); // guard against a tight race at first insert
-
-      return 0;
-    });
-  }
-
-  async increment(walletId: string, chainId: number): Promise<void> {
-    await this.db
-      .update(wallet_nonces)
-      .set({
-        nonce: sql`nonce + 1`,
-        updated_at: sql`now()`,
-      })
-      .where(sql`wallet_id = ${walletId} AND chain_id = ${chainId}`);
+    const row = result.rows[0] as { reserved: number } | undefined;
+    if (!row) {
+      throw new Error('nonce reservation returned no row');
+    }
+    return Number(row.reserved);
   }
 }

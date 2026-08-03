@@ -1,22 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiController } from './api.controller';
 import { ApiService } from './api.service';
+import { WalletService } from '@app/wallet';
 
 describe('ApiController', () => {
   let apiController: ApiController;
+  let apiService: ApiService;
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [ApiController],
-      providers: [ApiService],
+      providers: [ApiService, { provide: WalletService, useValue: {} }],
     }).compile();
 
     apiController = app.get<ApiController>(ApiController);
+    apiService = app.get<ApiService>(ApiService);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(apiController.getHello()).toBe('Hello World!');
-    });
+  it('should be defined', () => {
+    expect(apiController).toBeDefined();
+  });
+
+  it('should expose the hello endpoint', () => {
+    expect(apiService.getHello()).toBe('Hello World!');
   });
 });

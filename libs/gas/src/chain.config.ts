@@ -22,7 +22,10 @@ export interface ChainConfig {
  *   1. Add an entry here with the envKey
  *   2. Set RPC_<ENVKEY>_1 (and optionally _2, _3) in your .env
  */
-export const SUPPORTED_CHAINS: Record<number, Omit<ChainConfig, 'rpcUrls'> & { envKey: string }> = {
+export const SUPPORTED_CHAINS: Record<
+  number,
+  Omit<ChainConfig, 'rpcUrls'> & { envKey: string }
+> = {
   // Ethereum Mainnet
   1: {
     chainId: 1,

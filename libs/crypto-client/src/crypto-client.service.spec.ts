@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { CryptoClientService } from './crypto-client.service';
 
 describe('CryptoClientService', () => {
@@ -6,7 +7,15 @@ describe('CryptoClientService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CryptoClientService],
+      providers: [
+        CryptoClientService,
+        {
+          provide: ConfigService,
+          useValue: {
+            getOrThrow: () => 'http://crypto:4000',
+          },
+        },
+      ],
     }).compile();
 
     service = module.get<CryptoClientService>(CryptoClientService);

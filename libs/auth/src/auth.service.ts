@@ -6,7 +6,7 @@ import {
 import { ApiKeyRepository, organizationRepository } from '@app/db/repositories';
 import { AuditLogRepository } from '@app/db/repositories/audit-log.repository';
 import { NewApiKey } from '@app/db/schema/api-keys';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'crypto';
 
 export interface RegisterApiKeyDto {
   name: string;
@@ -51,13 +51,14 @@ export class AuthService {
     // Generate key_id
     const keyId = randomUUID();
 
-    // Create API key
+    // Create API key. Default scope is '*' (unrestricted) per
+    // docs/STAMP_AUTH.md — callers should narrow it explicitly.
     const apiKeyData: NewApiKey = {
       org_id: orgId,
       name: data.name,
       public_key: data.publicKey,
       key_id: keyId,
-      scopes: data.scopes || ['tx:sign'],
+      scopes: data.scopes || ['*'],
       status: 'active',
     };
 
@@ -141,8 +142,15 @@ export class AuthService {
       );
     }
 
-    const providedHash = createHash('sha256').update(token).digest('hex');
-    if (providedHash !== org.bootstrap_token_hash) {
+    // Constant-time comparison — the token is high-entropy so the practical
+    // risk is low, but timing-safe equality is the correct pattern for
+    // comparing secrets.
+    const providedHash = createHash('sha256').update(token).digest();
+    const storedHash = Buffer.from(org.bootstrap_token_hash, 'hex');
+    if (
+      providedHash.length !== storedHash.length ||
+      !timingSafeEqual(providedHash, storedHash)
+    ) {
       throw new BadRequestException('Invalid bootstrap token');
     }
 

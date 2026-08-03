@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsUUID } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class TxFieldsDto {
@@ -7,9 +7,12 @@ class TxFieldsDto {
   @IsNumber()
   chainId!: number;
 
-  @ApiProperty({ example: 42 })
+  // The server reserves nonces itself (atomic per-wallet counter) — clients
+  // must not supply one. Kept for schema compatibility with the docs.
+  @ApiProperty({ example: 42, required: false })
+  @IsOptional()
   @IsNumber()
-  nonce!: number;
+  nonce?: number;
 
   @ApiProperty({ example: '0x...' })
   @IsString()

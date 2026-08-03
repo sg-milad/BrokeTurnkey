@@ -11,4 +11,4 @@ import { PolicyModule } from '@app/policy';
   providers: [WalletService, SigningService],
   exports: [WalletService, SigningService],
 })
-export class WalletModule { }
+export class WalletModule {}

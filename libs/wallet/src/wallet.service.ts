@@ -4,6 +4,8 @@ import {
   NotFoundException,
   Logger,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { CryptoClientService } from '@app/crypto-client';
 import { GasService, ErrorType, classifyError } from '@app/gas';
@@ -58,7 +60,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) { }
+  ) {}
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -230,7 +232,8 @@ export class WalletService {
     if (wallet.org_id !== orgId)
       throw new BadRequestException('Wallet does not belong to this org');
 
-    // 2. Idempotency check - compute key from request params
+    // 2. Idempotency — the unique index on signing_requests.idempotency_key
+    // is the arbiter. Fast-path check avoids burning a nonce on a duplicate.
     const idempotencyKey = this.computeIdempotencyKey(walletId, req);
     const existingRequest =
       await this.signingRequestRepo.findByIdempotencyKey(idempotencyKey);
@@ -271,8 +274,9 @@ export class WalletService {
     const maxPriorityFeePerGas =
       req.maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
 
-    // 5. Get + lock nonce
-    const nonce = await this.gasService.getNextNonce(walletId, req.chainId);
+    // 5. Atomically reserve (consume) the next nonce. The reservation is
+    // permanent — concurrent requests can never observe the same nonce.
+    const nonce = await this.gasService.reserveNonce(walletId, req.chainId);
 
     const txFields: TxFields = {
       chainId: req.chainId,
@@ -285,15 +289,48 @@ export class WalletService {
       data: req.data,
     };
 
-    // 6. Create pending signing_request with idempotency key
-    const signingRequest = await this.signingRequestRepo.create({
-      org_id: orgId,
-      wallet_id: walletId,
-      chain_id: req.chainId,
-      tx_payload: JSON.parse(JSON.stringify(txFields)),
-      status: 'pending',
-      idempotency_key: idempotencyKey,
-    });
+    // 6. Create the pending signing_request. The idempotency_key unique index
+    // arbitrates concurrent duplicate submissions: the loser of the race
+    // either returns the winner's request or reuses a previously failed row.
+    let signingRequest;
+    try {
+      signingRequest = await this.signingRequestRepo.create({
+        org_id: orgId,
+        wallet_id: walletId,
+        chain_id: req.chainId,
+        tx_payload: JSON.parse(JSON.stringify(txFields)),
+        status: 'pending',
+        idempotency_key: idempotencyKey,
+      });
+    } catch (err) {
+      const pgErr = err as { code?: string } | undefined;
+      if (pgErr?.code !== '23505') throw err; // not a uniqueness conflict
+
+      const raced = await this.signingRequestRepo.findByIdempotencyKey(
+        idempotencyKey,
+      );
+      if (raced && raced.status !== 'failed') {
+        this.logger.log(
+          `Concurrent duplicate detected; returning existing signing request ${raced.id}`,
+        );
+        return this.buildSignResultFromRequest(raced);
+      }
+      if (!raced) throw err; // uniqueness violation with no matching row — unexpected
+
+      // Reuse the failed row: reset to pending so the retry can proceed.
+      this.logger.log(
+        `Reusing previously failed signing request ${raced.id} for idempotency key ${idempotencyKey}`,
+      );
+      await this.signingRequestRepo.update(raced.id, {
+        status: 'pending',
+        tx_payload: JSON.parse(JSON.stringify(txFields)),
+        tx_hash: undefined,
+        signature: undefined,
+        failure_reason: undefined,
+        error_type: undefined,
+      });
+      signingRequest = { ...raced, status: 'pending', tx_payload: txFields };
+    }
 
     // 7. Sign via Go sidecar
     let signResult: Awaited<ReturnType<CryptoClientService['signTransaction']>>;
@@ -307,15 +344,25 @@ export class WalletService {
       );
     } catch (err) {
       const errorType = classifyError(err as Error);
+      // Log the full detail server-side; never surface crypto/RPC internals
+      // to the client.
+      this.logger.error(
+        `Sign failed for signing request ${signingRequest.id}: ${(err as Error).message}`,
+      );
       await this.signingRequestRepo.update(signingRequest.id, {
         status: 'failed',
         failure_reason: (err as Error).message,
         error_type: errorType,
       });
-      throw err;
+      throw new HttpException(
+        `Transaction signing failed (${errorType})`,
+        errorType === 'permanent'
+          ? HttpStatus.BAD_REQUEST
+          : HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
-    // 7. Update signing_request with hash + signature
+    // 8. Update signing_request with hash + signature
     await this.signingRequestRepo.update(signingRequest.id, {
       tx_hash: signResult.txHash,
       signature: signResult.signature,
@@ -323,7 +370,7 @@ export class WalletService {
       signed_at: new Date(),
     });
 
-    // 8. Broadcast with retry
+    // 9. Broadcast with retry
     try {
       await this.gasService.broadcastTransaction(signResult.rawTx, req.chainId);
 
@@ -333,18 +380,24 @@ export class WalletService {
       });
     } catch (err) {
       const errorType = classifyError(err as Error);
+      this.logger.error(
+        `Broadcast failed for signing request ${signingRequest.id}: ${(err as Error).message}`,
+      );
       await this.signingRequestRepo.update(signingRequest.id, {
         status: 'failed',
         failure_reason: `broadcast failed: ${(err as Error).message}`,
         error_type: errorType,
       });
-      throw err;
+      throw new HttpException(
+        `Transaction broadcast failed (${errorType})`,
+        errorType === 'permanent'
+          ? HttpStatus.BAD_REQUEST
+          : HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
-    // 9. Increment nonce only after successful broadcast
-    await this.gasService.incrementNonce(walletId, req.chainId);
-
-    // 10. Poll for receipt
+    // 10. Poll for receipt. (The nonce was consumed at reservation time —
+    // there is no post-broadcast increment step.)
     const { receipt, timedOut } = await this.gasService.waitForReceipt(
       signResult.txHash,
       req.chainId,
@@ -394,11 +447,11 @@ export class WalletService {
       signature: signResult.signature,
       receipt: receipt
         ? {
-          blockNumber: receipt.blockNumber,
-          status: receipt.status,
-          gasUsed: receipt.gasUsed,
-          effectiveGasPrice: receipt.effectiveGasPrice,
-        }
+            blockNumber: receipt.blockNumber,
+            status: receipt.status,
+            gasUsed: receipt.gasUsed,
+            effectiveGasPrice: receipt.effectiveGasPrice,
+          }
         : null,
       status: finalStatus,
       signingRequestId: signingRequest.id,
@@ -418,11 +471,11 @@ export class WalletService {
       signature: request.signature || '',
       receipt: request.block_number
         ? {
-          blockNumber: request.block_number,
-          status: request.status === 'confirmed' ? 1 : 0,
-          gasUsed: request.gas_used,
-          effectiveGasPrice: request.effective_gas_price,
-        }
+            blockNumber: request.block_number,
+            status: request.status === 'confirmed' ? 1 : 0,
+            gasUsed: request.gas_used,
+            effectiveGasPrice: request.effective_gas_price,
+          }
         : null,
       status:
         request.status === 'timeout'

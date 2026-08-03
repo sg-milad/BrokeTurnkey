@@ -12,11 +12,15 @@ import {
 export class CryptoClientService implements OnModuleInit {
   private readonly logger = new Logger(CryptoClientService.name);
   private baseUrl!: string;
+  private authToken!: string;
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
     this.baseUrl = this.config.getOrThrow<string>('CRYPTO_SERVICE_URL');
+    // Shared secret with the Go crypto service — every request must carry it
+    // or the crypto service rejects the call (fail closed on both sides).
+    this.authToken = this.config.getOrThrow<string>('CRYPTO_AUTH_TOKEN');
     this.logger.log(`Crypto service URL: ${this.baseUrl}`);
   }
 
@@ -75,7 +79,10 @@ export class CryptoClientService implements OnModuleInit {
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Crypto-Token': this.authToken,
+      },
       body: JSON.stringify(body),
     });
 

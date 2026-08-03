@@ -39,7 +39,7 @@ const walletNonceRepositoryProvider = {
     WalletNonceRepository,
     walletNonceRepositoryProvider,
     ApiKeyRepository,
-    PolicyRepository
+    PolicyRepository,
   ],
   exports: [
     DRIZZLE_CLIENT,
@@ -52,7 +52,7 @@ const walletNonceRepositoryProvider = {
     WalletNonceRepository,
     WALLET_NONCE_REPOSITORY,
     ApiKeyRepository,
-    PolicyRepository
+    PolicyRepository,
   ],
 })
-export class DatabaseModule { }
+export class DatabaseModule {}

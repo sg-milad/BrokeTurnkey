@@ -25,16 +25,19 @@ in the database alongside an API key identifier.
 #### Request format
 
 Clients sign each request by constructing a canonical payload that includes:
-1. The request body (JSON-serialized)
-2. A Unix timestamp (seconds since epoch)
-3. The HTTP method and path
+1. The request body (raw bytes as sent — hashed with SHA-256)
+2. A Unix timestamp in milliseconds
+3. The API key identifier
 
 The client computes a P-256 signature over this payload and sends it in the
 `X-Stamp` header:
 
 ```
-X-Stamp: <api_key_id>:<timestamp>:<signature>
+X-Stamp: <base64url(signature)>.<timestamp_ms>.<key_id>
 ```
+
+See `docs/STAMP_AUTH.md` for the canonical header construction — it is the
+authoritative spec (the format above supersedes earlier drafts of this file).
 
 #### Verification flow
 

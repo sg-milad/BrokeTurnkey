@@ -94,12 +94,13 @@ export class GasService {
   // Nonce management
   // -------------------------------------------------------------------------
 
-  async getNextNonce(walletId: string, chainId: number): Promise<number> {
-    return this.walletNonceRepo.getAndLock(walletId, chainId);
-  }
-
-  async incrementNonce(walletId: string, chainId: number): Promise<void> {
-    return this.walletNonceRepo.increment(walletId, chainId);
+  /**
+   * Atomically reserves and consumes the next nonce for the wallet+chain pair.
+   * The reservation is permanent (see WalletNonceRepository.reserve) so
+   * concurrent sign requests can never share a nonce.
+   */
+  async reserveNonce(walletId: string, chainId: number): Promise<number> {
+    return this.walletNonceRepo.reserve(walletId, chainId);
   }
 
   // -------------------------------------------------------------------------
