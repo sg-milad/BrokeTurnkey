@@ -33,7 +33,9 @@
       "@app/crypto-client": ["libs/crypto-client/src"],
       "@app/crypto-client/*": ["libs/crypto-client/src/*"],
       "@app/wallet": ["libs/wallet/src"],
-      "@app/wallet/*": ["libs/wallet/src/*"]
+      "@app/wallet/*": ["libs/wallet/src/*"],
+      "@app/users": ["libs/users/src"],
+      "@app/users/*": ["libs/users/src/*"]
     }
   }
 }

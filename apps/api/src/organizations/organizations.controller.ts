@@ -1,14 +1,28 @@
-import { Controller, Post, Body, Get, Param, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  Query,
+  HttpCode,
+  UseGuards,
+} from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { type organization } from '@app/db/schema/organizations';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
+import { StampVerifierGuard } from '@app/auth';
+import { AuditLogRepository } from '@app/db/repositories';
 
 @ApiTags('organizations')
 @Controller('organizations')
 export class OrganizationsController {
-  constructor(private readonly organizationsService: OrganizationsService) {}
+  constructor(
+    private readonly organizationsService: OrganizationsService,
+    private readonly auditLogRepo: AuditLogRepository,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create an organization' })
@@ -73,6 +87,36 @@ export class OrganizationsController {
     description: 'organization onboarded successfully.',
   })
   async onboard(@Param('id') id: string) {
-    return this.organizationsService.onboard(id);
+    const result = await this.organizationsService.onboard(id);
+    const bootstrapToken =
+      await this.organizationsService.generateBootstrapToken(id);
+    return { ...result, bootstrapToken };
+  }
+
+  @Get(':id/audit-log')
+  @UseGuards(StampVerifierGuard)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Query audit log for organization' })
+  @ApiResponse({ status: 200, description: 'Audit log entries returned.' })
+  async queryAuditLog(
+    @Param('id') orgId: string,
+    @Query('event') event?: string,
+    @Query('userId') userId?: string,
+    @Query('walletId') walletId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.auditLogRepo.query({
+      orgId,
+      event,
+      userId,
+      walletId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      limit: limit ? parseInt(limit, 10) : 50,
+      offset: offset ? parseInt(offset, 10) : 0,
+    });
   }
 }

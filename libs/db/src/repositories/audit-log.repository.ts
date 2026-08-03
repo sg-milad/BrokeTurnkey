@@ -3,6 +3,18 @@ import type { DrizzleClient } from '../db';
 import { DRIZZLE_CLIENT } from '../constants';
 import { IAuditLogRepository } from '../repositories/interfaces/audit-log.repository.interface';
 import { AuditLog, NewAuditLog, audit_log } from '../schema/audit-log';
+import { eq, desc, and, gte, lte } from 'drizzle-orm';
+
+export interface AuditLogQuery {
+  orgId: string;
+  event?: string;
+  userId?: string;
+  walletId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  limit?: number;
+  offset?: number;
+}
 
 @Injectable()
 export class AuditLogRepository implements IAuditLogRepository {
@@ -11,5 +23,36 @@ export class AuditLogRepository implements IAuditLogRepository {
   async create(data: NewAuditLog): Promise<AuditLog> {
     const result = await this.db.insert(audit_log).values(data).returning();
     return result[0];
+  }
+
+  async query(filters: AuditLogQuery): Promise<AuditLog[]> {
+    const conditions = [eq(audit_log.org_id, filters.orgId)];
+
+    if (filters.event) {
+      conditions.push(eq(audit_log.event, filters.event));
+    }
+    if (filters.userId) {
+      conditions.push(eq(audit_log.user_id, filters.userId));
+    }
+    if (filters.walletId) {
+      conditions.push(eq(audit_log.wallet_id, filters.walletId));
+    }
+    if (filters.startDate) {
+      conditions.push(gte(audit_log.created_at, filters.startDate));
+    }
+    if (filters.endDate) {
+      conditions.push(lte(audit_log.created_at, filters.endDate));
+    }
+
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+
+    return this.db
+      .select()
+      .from(audit_log)
+      .where(and(...conditions))
+      .orderBy(desc(audit_log.created_at))
+      .limit(limit)
+      .offset(offset);
   }
 }

@@ -3,9 +3,11 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CryptoClientService } from '@app/crypto-client';
 import { GasService, ErrorType, classifyError } from '@app/gas';
+import { PolicyService } from '@app/policy';
 import {
   organizationSeedRepository,
   WalletRepository,
@@ -50,6 +52,7 @@ export class WalletService {
   constructor(
     private readonly cryptoClient: CryptoClientService,
     private readonly gasService: GasService,
+    private readonly policyService: PolicyService,
     private readonly orgSeedRepo: organizationSeedRepository,
     private readonly walletRepo: WalletRepository,
     private readonly signingRequestRepo: SigningRequestRepository,
@@ -201,7 +204,22 @@ export class WalletService {
       return this.buildSignResultFromRequest(existingRequest);
     }
 
-    // 3. Estimate fees if not provided by caller
+    // 3. Policy evaluation - BEFORE nonce reservation to avoid wasting nonces
+    const txPayload = {
+      to: req.to,
+      value: req.value,
+      chainId: req.chainId,
+    };
+    const policyResult = await this.policyService.evaluate(
+      orgId,
+      walletId,
+      txPayload,
+    );
+    if (policyResult.decision === 'deny') {
+      throw new ForbiddenException(`Policy denied: ${policyResult.reason}`);
+    }
+
+    // 4. Estimate fees if not provided by caller
     const fees = await this.gasService.estimateFees(
       req.to,
       req.value,
@@ -215,7 +233,7 @@ export class WalletService {
     const maxPriorityFeePerGas =
       req.maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
 
-    // 4. Get + lock nonce
+    // 5. Get + lock nonce
     const nonce = await this.gasService.getNextNonce(walletId, req.chainId);
 
     const txFields: TxFields = {
@@ -229,7 +247,7 @@ export class WalletService {
       data: req.data,
     };
 
-    // 5. Create pending signing_request with idempotency key
+    // 6. Create pending signing_request with idempotency key
     const signingRequest = await this.signingRequestRepo.create({
       org_id: orgId,
       wallet_id: walletId,
@@ -238,7 +256,7 @@ export class WalletService {
       idempotency_key: idempotencyKey,
     });
 
-    // 6. Sign via Go sidecar
+    // 7. Sign via Go sidecar
     let signResult: Awaited<ReturnType<CryptoClientService['signTransaction']>>;
     try {
       signResult = await this.cryptoClient.signTransaction(

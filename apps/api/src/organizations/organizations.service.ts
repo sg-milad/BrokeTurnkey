@@ -2,6 +2,7 @@ import { Injectable, ConflictException } from '@nestjs/common';
 import { organizationRepository } from '@app/db/repositories/organization.repository';
 import { organization } from '@app/db/schema/organizations';
 import { WalletService } from '@app/wallet';
+import { AuthService } from '@app/auth';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class OrganizationsService {
   constructor(
     private readonly organizationRepository: organizationRepository,
     private readonly walletService: WalletService,
+    private readonly authService: AuthService,
   ) {}
 
   async create(
@@ -43,5 +45,9 @@ export class OrganizationsService {
 
   async onboard(id: string) {
     return this.walletService.onBoardOrganization(id);
+  }
+
+  async generateBootstrapToken(orgId: string): Promise<string> {
+    return this.authService.generateBootstrapToken(orgId);
   }
 }

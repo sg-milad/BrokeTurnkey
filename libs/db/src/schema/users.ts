@@ -3,7 +3,6 @@ import {
   uuid,
   varchar,
   timestamp,
-  index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';

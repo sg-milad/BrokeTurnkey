@@ -33,4 +33,16 @@ export class organizationRepository implements IorganizationRepository {
     const result = await this.db.insert(organizations).values(data).returning();
     return result[0];
   }
+
+  async update(
+    id: string,
+    data: Partial<Neworganization>,
+  ): Promise<organization | undefined> {
+    const result = await this.db
+      .update(organizations)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(organizations.id, id))
+      .returning();
+    return result[0];
+  }
 }
