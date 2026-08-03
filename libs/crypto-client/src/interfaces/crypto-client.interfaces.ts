@@ -26,3 +26,7 @@ export interface SignTransactionResult {
   txHash: string; // 0x-prefixed 32-byte keccak256
   rawTx: string; // 0x-prefixed RLP-encoded signed tx, ready for broadcast
 }
+
+export interface SignHashResult {
+  signature: string; // 0x-prefixed 65-byte hex
+}

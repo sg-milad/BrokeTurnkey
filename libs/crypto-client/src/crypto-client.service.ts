@@ -4,6 +4,7 @@ import {
   CreateWalletResponse,
   DeriveWalletResponse,
   SignTransactionResult,
+  SignHashResult,
   TxFields,
 } from './interfaces/crypto-client.interfaces';
 
@@ -44,12 +45,28 @@ export class CryptoClientService implements OnModuleInit {
     derivationPath: string,
     txFields: TxFields,
   ): Promise<SignTransactionResult> {
-    return this.post('/wallet/sign', {
+    return this.post('/wallet/sign-transaction', {
       encryptedSeed,
       seedNonce,
       encryptedDek,
       derivationPath,
       txFields,
+    });
+  }
+
+  async signHash(
+    encryptedSeed: string,
+    seedNonce: string,
+    encryptedDek: string,
+    derivationPath: string,
+    hashHex: string,
+  ): Promise<SignHashResult> {
+    return this.post('/wallet/sign-hash', {
+      encryptedSeed,
+      seedNonce,
+      encryptedDek,
+      derivationPath,
+      hashHex,
     });
   }
 

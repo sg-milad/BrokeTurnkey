@@ -61,7 +61,9 @@ func main() {
 	// Cryptographic boundary endpoints
 	mux.HandleFunc("/wallet/create", HandleCreateWallet)
 	mux.HandleFunc("/wallet/derive", HandleDeriveWallet)
-	mux.HandleFunc("/wallet/sign", HandleSignTx)
+	mux.HandleFunc("/wallet/sign-transaction", HandleSignTx)
+	mux.HandleFunc("/wallet/sign", HandleSignTx) // backward-compatible alias
+	mux.HandleFunc("/wallet/sign-hash", HandleSignHash)
 
 	// Fallback for undefined routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

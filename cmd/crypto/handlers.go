@@ -60,6 +60,18 @@ type SignTxResponse struct {
 	RawTx     string `json:"rawTx"`     // 0x-prefixed RLP-encoded signed tx hex
 }
 
+type SignHashRequest struct {
+	EncryptedSeed  string `json:"encryptedSeed"`
+	SeedNonce      string `json:"seedNonce"`
+	EncryptedDek   string `json:"encryptedDek"`
+	DerivationPath string `json:"derivationPath"`
+	HashHex        string `json:"hashHex"` // 0x-prefixed 32-byte hex hash
+}
+
+type SignHashResponse struct {
+	Signature string `json:"signature"` // 0x-prefixed 65-byte hex
+}
+
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -255,6 +267,70 @@ func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 		Signature: signature,
 		TxHash:    "0x" + hex.EncodeToString(txHash),
 		RawTx:     "0x" + hex.EncodeToString(rawTxBytes),
+	})
+}
+
+// HandleSignHash decrypts the org seed, derives the key, and signs a raw
+// 32-byte hash directly with secp256k1. No encoding or interpretation —
+// the caller constructs the hash (EIP-712, personal message, etc.).
+func HandleSignHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req SignHashRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	index, err := parseDerivIndex(req.DerivationPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Decode the 32-byte hash
+	hashBytes, err := hex.DecodeString(strings.TrimPrefix(req.HashHex, "0x"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid hashHex encoding")
+		return
+	}
+	if len(hashBytes) != 32 {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("hash must be 32 bytes, got %d", len(hashBytes)))
+		return
+	}
+
+	// 1. Decrypt seed
+	seed, dek, err := decryptOrgSeed(req.EncryptedSeed, req.SeedNonce, req.EncryptedDek)
+	if err != nil {
+		log.Printf("[handler] decryptOrgSeed failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "decryption error")
+		return
+	}
+	defer ZeroBytes(seed)
+	defer ZeroBytes(dek)
+
+	// 2. Derive private key
+	_, privKey, err := DeriveAddress(seed, index)
+	if err != nil {
+		log.Printf("[handler] DeriveAddress failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal derivation error")
+		return
+	}
+	defer ZeroBytes(privKey)
+
+	// 3. Sign the raw hash
+	signature, err := SignTxHash(hashBytes, privKey)
+	if err != nil {
+		log.Printf("[handler] SignTxHash failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "signing error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SignHashResponse{
+		Signature: signature,
 	})
 }
 
