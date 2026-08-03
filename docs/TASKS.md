@@ -59,7 +59,7 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 ---
 
-## Phase 3 — Transaction Lifecycle
+## Phase 3 — Transaction Lifecycle ✅
 
 **Goal:** The system can estimate gas, manage nonces, broadcast signed transactions, and track confirmation status with full error recovery.
 
@@ -167,6 +167,7 @@ For failures:
 ```
 
 **Done when:**
+
 - A signed transaction reaches a testnet (Base Sepolia) and `eth_getTransactionReceipt` returns a success receipt
 - Nonce increments correctly in the database and is never reused
 - A second transaction from the same wallet submits without collision
@@ -179,7 +180,7 @@ For failures:
 
 ---
 
-## Phase 4 — Enterprise Security
+## Phase 4 — Enterprise Security ✅
 
 **Goal:** Organizations can configure signing policies, all administrative actions are logged, and API access is authenticated with cryptographic stamps.
 
@@ -268,7 +269,7 @@ For failures:
 
 ---
 
-## Phase 5 — Typed Signing
+## Phase 5 — Typed Signing ✅
 
 **Goal:** The Go crypto service becomes a general-purpose signing service, not an Ethereum-transaction-specific one. It can sign any EIP-712 structured data hash.
 
@@ -298,7 +299,7 @@ For failures:
 
 ---
 
-## Phase 6 — Multi-Chain Support
+## Phase 6 — Multi-Chain Support ✅
 
 **Goal:** The platform supports multiple EVM chains without duplicating logic per chain.
 
