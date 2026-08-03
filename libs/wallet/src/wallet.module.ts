@@ -4,10 +4,11 @@ import { DatabaseModule } from '@app/db';
 import { WalletService } from './wallet.service';
 import { SigningService } from './signing.service';
 import { GasModule } from '@app/gas';
+import { PolicyModule } from '@app/policy';
 
 @Module({
-  imports: [CryptoClientModule, DatabaseModule, GasModule],
+  imports: [CryptoClientModule, DatabaseModule, GasModule, PolicyModule],
   providers: [WalletService, SigningService],
   exports: [WalletService, SigningService],
 })
-export class WalletModule {}
+export class WalletModule { }

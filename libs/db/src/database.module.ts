@@ -10,6 +10,8 @@ import {
   organizationRepository,
   UserRepository,
   WalletNonceRepository,
+  ApiKeyRepository,
+  PolicyRepository,
 } from './repositories';
 
 const walletNonceRepositoryProvider = {
@@ -36,6 +38,8 @@ const walletNonceRepositoryProvider = {
     UserRepository,
     WalletNonceRepository,
     walletNonceRepositoryProvider,
+    ApiKeyRepository,
+    PolicyRepository
   ],
   exports: [
     DRIZZLE_CLIENT,
@@ -47,6 +51,8 @@ const walletNonceRepositoryProvider = {
     UserRepository,
     WalletNonceRepository,
     WALLET_NONCE_REPOSITORY,
+    ApiKeyRepository,
+    PolicyRepository
   ],
 })
-export class DatabaseModule {}
+export class DatabaseModule { }
