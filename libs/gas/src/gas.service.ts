@@ -1,25 +1,19 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { WALLET_NONCE_REPOSITORY } from '@app/db/constants';
 import type { IWalletNonceRepository } from '@app/db/repositories';
 import { FeeEstimate, TransactionReceipt, ErrorType } from './types';
 import { classifyError } from './error-classifier';
+import { ChainService } from './chain.service';
 
 @Injectable()
 export class GasService {
   private readonly logger = new Logger(GasService.name);
-  private readonly rpcUrls: string[];
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly chainService: ChainService,
     @Inject(WALLET_NONCE_REPOSITORY)
     private readonly walletNonceRepo: IWalletNonceRepository,
-  ) {
-    // Support multiple RPC URLs for failover
-    const primaryRpc = this.config.getOrThrow<string>('RPC_URL');
-    const fallbackRpc = this.config.get<string>('RPC_URL_FALLBACK');
-    this.rpcUrls = fallbackRpc ? [primaryRpc, fallbackRpc] : [primaryRpc];
-  }
+  ) {}
 
   // -------------------------------------------------------------------------
   // Fee estimation — EIP-1559 only
@@ -33,8 +27,8 @@ export class GasService {
     from?: string,
   ): Promise<FeeEstimate> {
     const [gasLimit, feeData] = await Promise.all([
-      this.estimateGas(to, value, data, from),
-      this.fetchFeeData(),
+      this.estimateGas(to, value, data, chainId, from),
+      this.fetchFeeData(chainId),
     ]);
 
     return { gasLimit, ...feeData };
@@ -44,6 +38,7 @@ export class GasService {
     to: string,
     value: string,
     data: string,
+    chainId: number,
     from?: string,
   ): Promise<number> {
     const params: Record<string, string> = {
@@ -53,16 +48,18 @@ export class GasService {
     };
     if (from) params.from = from;
 
-    const result = await this.rpcCallWithRetry<string>('eth_estimateGas', [
-      params,
-    ]);
+    const result = await this.rpcCallWithRetry<string>(
+      'eth_estimateGas',
+      [params],
+      chainId,
+    );
 
     // Add a 20% buffer so the tx doesn't run out of gas on-chain
     const estimated = BigInt(result);
     return Number((estimated * 120n) / 100n);
   }
 
-  private async fetchFeeData(): Promise<{
+  private async fetchFeeData(chainId: number): Promise<{
     maxFeePerGas: string;
     maxPriorityFeePerGas: string;
   }> {
@@ -71,7 +68,7 @@ export class GasService {
     const history = await this.rpcCallWithRetry<{
       baseFeePerGas: string[];
       reward: string[][];
-    }>('eth_feeHistory', [5, 'latest', [75]]);
+    }>('eth_feeHistory', [5, 'latest', [75]], chainId);
 
     // The last element of baseFeePerGas is the NEXT block's projected base fee
     const baseFee = BigInt(
@@ -109,12 +106,20 @@ export class GasService {
   // Broadcast with retry and failover
   // -------------------------------------------------------------------------
 
-  async broadcastTransaction(rawTxHex: string): Promise<string> {
-    return this.rpcCallWithRetry<string>('eth_sendRawTransaction', [rawTxHex]);
+  async broadcastTransaction(
+    rawTxHex: string,
+    chainId: number,
+  ): Promise<string> {
+    return this.rpcCallWithRetry<string>(
+      'eth_sendRawTransaction',
+      [rawTxHex],
+      chainId,
+    );
   }
 
   async waitForReceipt(
     txHash: string,
+    chainId: number,
     timeoutMs: number = 60_000,
   ): Promise<{ receipt: TransactionReceipt | null; timedOut: boolean }> {
     const pollIntervalMs = 3_000;
@@ -124,6 +129,7 @@ export class GasService {
       const receipt = await this.rpcCallWithRetry<TransactionReceipt | null>(
         'eth_getTransactionReceipt',
         [txHash],
+        chainId,
       );
 
       if (receipt !== null) {
@@ -139,9 +145,11 @@ export class GasService {
 
     // Check if tx exists in mempool after timeout
     try {
-      const tx = await this.rpcCallWithRetry<any>('eth_getTransactionByHash', [
-        txHash,
-      ]);
+      const tx = await this.rpcCallWithRetry<any>(
+        'eth_getTransactionByHash',
+        [txHash],
+        chainId,
+      );
       if (tx === null) {
         this.logger.warn(`Transaction ${txHash} not found - likely dropped`);
       }
@@ -161,13 +169,14 @@ export class GasService {
   private async rpcCallWithRetry<T>(
     method: string,
     params: unknown[],
+    chainId: number,
     maxRetries = 3,
   ): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await this.rpcCall<T>(method, params);
+        return await this.rpcCall<T>(method, params, chainId);
       } catch (err) {
         lastError = err as Error;
         const errorType = classifyError(lastError);
@@ -191,10 +200,16 @@ export class GasService {
     throw lastError;
   }
 
-  private async rpcCall<T>(method: string, params: unknown[]): Promise<T> {
+  private async rpcCall<T>(
+    method: string,
+    params: unknown[],
+    chainId: number,
+  ): Promise<T> {
+    const rpcUrls = this.chainService.getRpcUrls(chainId);
+
     // Try each RPC URL in order
-    for (let i = 0; i < this.rpcUrls.length; i++) {
-      const rpcUrl = this.rpcUrls[i];
+    for (let i = 0; i < rpcUrls.length; i++) {
+      const rpcUrl = rpcUrls[i];
       try {
         const response = await fetch(rpcUrl, {
           method: 'POST',
@@ -224,7 +239,7 @@ export class GasService {
         );
 
         // If this is the last provider, throw the error
-        if (i === this.rpcUrls.length - 1) {
+        if (i === rpcUrls.length - 1) {
           throw err;
         }
 

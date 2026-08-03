@@ -16,7 +16,6 @@ export const wallet_nonces = pgTable(
       .default(sql`gen_random_uuid()`),
     wallet_id: uuid('wallet_id')
       .notNull()
-      .unique()
       .references(() => wallets.id),
     chain_id: integer('chain_id').notNull(),
     nonce: integer('nonce').notNull().default(0),

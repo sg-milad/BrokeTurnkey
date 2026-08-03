@@ -12,7 +12,7 @@ export class WalletsController {
   constructor(
     private readonly walletService: WalletService,
     private readonly signingService: SigningService,
-  ) {}
+  ) { }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get wallet details by id' })
@@ -32,17 +32,25 @@ export class WalletsController {
   @ApiOperation({ summary: 'Derive a new wallet for an organization' })
   @ApiResponse({ status: 201, description: 'Wallet derived successfully.' })
   async derive(@Body() dto: DeriveWalletDto) {
-    return this.walletService.deriveWallet(dto.orgId, dto.userId, dto.label);
+    return this.walletService.deriveWallet(
+      dto.orgId,
+      dto.userId,
+      dto.label,
+      dto.chainId,
+    );
   }
 
-  @Post(':id/sign')
+  @Post(':id/sign-transaction')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Sign and broadcast a transaction' })
+  @ApiOperation({ summary: 'Sign and broadcast a transaction (canonical route)' })
   @ApiResponse({
     status: 200,
     description: 'Transaction signed and broadcast.',
   })
-  async sign(@Param('id') walletId: string, @Body() dto: SignTransactionDto) {
+  async signTransaction(
+    @Param('id') walletId: string,
+    @Body() dto: SignTransactionDto,
+  ) {
     return this.walletService.requestSign(dto.orgId, walletId, {
       chainId: dto.txFields.chainId,
       to: dto.txFields.to,
@@ -52,6 +60,17 @@ export class WalletsController {
       maxFeePerGas: dto.txFields.maxFeePerGas,
       maxPriorityFeePerGas: dto.txFields.maxPriorityFeePerGas,
     });
+  }
+
+  @Post(':id/sign')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Sign and broadcast a transaction (backward-compatible alias for /sign-transaction)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Transaction signed and broadcast.',
+  })
+  async sign(@Param('id') walletId: string, @Body() dto: SignTransactionDto) {
+    return this.signTransaction(walletId, dto);
   }
 
   @Post(':id/sign-typed')

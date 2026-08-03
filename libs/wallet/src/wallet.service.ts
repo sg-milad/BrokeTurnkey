@@ -58,7 +58,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) {}
+  ) { }
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -90,7 +90,12 @@ export class WalletService {
     return { orgId, firstAddress };
   }
 
-  async deriveWallet(orgId: string, userId: string | undefined, label: string) {
+  async deriveWallet(
+    orgId: string,
+    userId: string | undefined,
+    label: string,
+    chainId?: number,
+  ) {
     const seedRow = await this.orgSeedRepo.findByOrgId(orgId);
     if (!seedRow)
       throw new BadRequestException('organization has not been onboarded');
@@ -105,6 +110,9 @@ export class WalletService {
         );
       }
     }
+
+    // Resolve chain ID — default to Ethereum mainnet if not provided
+    const resolvedChainId = chainId ?? 1;
 
     const derivIndex = await this.walletRepo.countByOrgId(orgId);
 
@@ -121,6 +129,7 @@ export class WalletService {
       label,
       address,
       derivation_path: derivationPath,
+      chain_id: resolvedChainId,
     });
 
     await this.auditLogRepo.create({
@@ -131,18 +140,20 @@ export class WalletService {
       status: 'success',
     });
 
-    return { walletId: wallet.id, address, derivationPath };
+    return { walletId: wallet.id, address };
   }
 
   async listWalletsByOrgId(orgId: string) {
     const wallets = await this.walletRepo.findByOrgId(orgId);
     return wallets.map((w) => ({
       id: w.id,
-      address: w.address,
+      orgId: w.org_id,
+      userId: w.user_id,
       label: w.label,
-      user_id: w.user_id,
+      address: w.address,
+      chainId: w.chain_id,
       status: w.status,
-      created_at: w.created_at,
+      createdAt: w.created_at,
     }));
   }
 
@@ -154,17 +165,19 @@ export class WalletService {
       );
     return {
       id: wallet.id,
-      org_id: wallet.org_id,
-      address: wallet.address,
+      orgId: wallet.org_id,
+      userId: wallet.user_id,
       label: wallet.label,
-      user_id: wallet.user_id,
+      address: wallet.address,
+      chainId: wallet.chain_id,
       status: wallet.status,
-      created_at: wallet.created_at,
+      createdAt: wallet.created_at,
     };
   }
 
   async listSigningRequestsByOrgId(orgId: string) {
-    return this.signingRequestRepo.findByOrgId(orgId);
+    const requests = await this.signingRequestRepo.findByOrgId(orgId);
+    return requests.map(this.mapSigningRequest);
   }
 
   async listSigningRequestsByWalletId(walletId: string) {
@@ -173,7 +186,32 @@ export class WalletService {
       throw new NotFoundException(
         `Wallet with id "${walletId}" does not exist`,
       );
-    return this.signingRequestRepo.findByWalletId(walletId);
+    const requests = await this.signingRequestRepo.findByWalletId(walletId);
+    return requests.map(this.mapSigningRequest);
+  }
+
+  private mapSigningRequest(request: any) {
+    return {
+      id: request.id,
+      orgId: request.org_id,
+      walletId: request.wallet_id,
+      chainId: request.chain_id,
+      txHash: request.tx_hash || '',
+      txPayload: request.tx_payload,
+      signature: request.signature || '',
+      status: request.status,
+      failureReason: request.failure_reason || undefined,
+      errorType: request.error_type || undefined,
+      policyResult: request.policy_result,
+      blockNumber: request.block_number,
+      gasUsed: request.gas_used,
+      effectiveGasPrice: request.effective_gas_price,
+      idempotencyKey: request.idempotency_key,
+      createdAt: request.created_at,
+      signedAt: request.signed_at,
+      broadcastedAt: request.broadcasted_at,
+      confirmedAt: request.confirmed_at,
+    };
   }
 
   async requestSign(
@@ -251,6 +289,7 @@ export class WalletService {
     const signingRequest = await this.signingRequestRepo.create({
       org_id: orgId,
       wallet_id: walletId,
+      chain_id: req.chainId,
       tx_payload: JSON.parse(JSON.stringify(txFields)),
       status: 'pending',
       idempotency_key: idempotencyKey,
@@ -286,7 +325,7 @@ export class WalletService {
 
     // 8. Broadcast with retry
     try {
-      await this.gasService.broadcastTransaction(signResult.rawTx);
+      await this.gasService.broadcastTransaction(signResult.rawTx, req.chainId);
 
       await this.signingRequestRepo.update(signingRequest.id, {
         status: 'broadcasted',
@@ -308,6 +347,7 @@ export class WalletService {
     // 10. Poll for receipt
     const { receipt, timedOut } = await this.gasService.waitForReceipt(
       signResult.txHash,
+      req.chainId,
       60_000,
     );
 
@@ -354,11 +394,11 @@ export class WalletService {
       signature: signResult.signature,
       receipt: receipt
         ? {
-            blockNumber: receipt.blockNumber,
-            status: receipt.status,
-            gasUsed: receipt.gasUsed,
-            effectiveGasPrice: receipt.effectiveGasPrice,
-          }
+          blockNumber: receipt.blockNumber,
+          status: receipt.status,
+          gasUsed: receipt.gasUsed,
+          effectiveGasPrice: receipt.effectiveGasPrice,
+        }
         : null,
       status: finalStatus,
       signingRequestId: signingRequest.id,
@@ -378,11 +418,11 @@ export class WalletService {
       signature: request.signature || '',
       receipt: request.block_number
         ? {
-            blockNumber: request.block_number,
-            status: request.status === 'confirmed' ? 1 : 0,
-            gasUsed: request.gas_used,
-            effectiveGasPrice: request.effective_gas_price,
-          }
+          blockNumber: request.block_number,
+          status: request.status === 'confirmed' ? 1 : 0,
+          gasUsed: request.gas_used,
+          effectiveGasPrice: request.effective_gas_price,
+        }
         : null,
       status:
         request.status === 'timeout'

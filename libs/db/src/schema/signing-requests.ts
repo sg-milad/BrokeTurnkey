@@ -25,6 +25,7 @@ export const signing_requests = pgTable(
     wallet_id: uuid('wallet_id')
       .notNull()
       .references(() => wallets.id),
+    chain_id: integer('chain_id').notNull(),
     tx_hash: varchar('tx_hash', { length: 66 }),
     tx_payload: jsonb('tx_payload'),
     signature: text('signature'),
