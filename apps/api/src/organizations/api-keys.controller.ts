@@ -5,6 +5,7 @@ import {
   Delete,
   Body,
   Param,
+  Req,
   UseGuards,
   HttpCode,
 } from '@nestjs/common';
@@ -18,7 +19,7 @@ import {
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
 import { AuthService } from '@app/auth';
-import { StampVerifierGuard } from '@app/auth';
+import { StampVerifierGuard, OptionalStampVerifierGuard } from '@app/auth';
 import { Scopes } from '@app/auth';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
@@ -35,14 +36,15 @@ export class ApiKeysController {
   constructor(private readonly authService: AuthService) { }
 
   @Post()
-  @UseGuards(StampVerifierGuard)
-  @Scopes('key:write')
+  @UseGuards(OptionalStampVerifierGuard)
   @HttpCode(201)
   @ApiOperation({
     summary: 'Register a new API key',
     description:
-      'Registers a new API key for the organization. Requires a valid stamp ' +
-      'signature and key:write scope. Scopes default to ["*"] when omitted.',
+      'Registers a new API key for the organization. Authenticate with either ' +
+      'a valid stamp (key must have key:write scope) or the one-time ' +
+      'X-Bootstrap-Token header returned by POST /organizations/:id/onboard. ' +
+      'Scopes default to ["*"] when omitted.',
   })
   @ApiParam({
     name: 'id',
@@ -61,12 +63,17 @@ export class ApiKeysController {
   async registerApiKey(
     @Param('id') orgId: string,
     @Body() body: CreateApiKeyDto,
+    @Req() request: Record<string, any>,
   ) {
-    const requestingKeyId = undefined; // Guard attaches context; for now use bootstrap flow
+    const headers = request.headers as Record<string, string>;
+    const bootstrapToken = headers['x-bootstrap-token'] || undefined;
+    const user = request.user as { apiKeyId?: string } | undefined;
+    const requestingKeyId = user?.apiKeyId || undefined;
+
     return this.authService.registerApiKey(
       orgId,
       body,
-      undefined,
+      bootstrapToken,
       requestingKeyId,
     );
   }

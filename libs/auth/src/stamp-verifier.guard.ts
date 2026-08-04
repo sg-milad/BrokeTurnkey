@@ -126,3 +126,30 @@ export class StampVerifierGuard implements CanActivate {
     return true;
   }
 }
+
+/**
+ * Like StampVerifierGuard but does NOT reject when X-Stamp is absent.
+ * When a valid stamp is present it verifies and attaches request.user as usual.
+ * When no stamp is present it simply returns true so the route handler can
+ * fall back to alternative auth (e.g. X-Bootstrap-Token).
+ */
+@Injectable()
+export class OptionalStampVerifierGuard implements CanActivate {
+  constructor(private readonly apiKeyRepo: ApiKeyRepository) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<Record<string, any>>();
+    const headers = request.headers as Record<string, string>;
+    const stamp = headers['x-stamp'];
+
+    // No stamp — allow through; the handler must enforce its own auth.
+    if (!stamp) {
+      return true;
+    }
+
+    // Delegate to the real guard logic by re-using StampVerifierGuard's
+    // verification. We instantiate it with the same repo.
+    const strict = new StampVerifierGuard(this.apiKeyRepo);
+    return strict.canActivate(context);
+  }
+}
