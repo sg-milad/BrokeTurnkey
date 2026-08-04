@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsUUID, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class TxFieldsDto {
@@ -46,6 +46,7 @@ export class SignTransactionDto {
   orgId!: string;
 
   @ApiProperty({ type: TxFieldsDto })
+  @ValidateNested()
   @Type(() => TxFieldsDto)
   txFields!: TxFieldsDto;
 }
