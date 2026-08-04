@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ApiModule } from './api.module';
+import { LoggingInterceptor } from './common/logging.interceptor';
 import * as express from 'express';
 
 async function bootstrap() {
@@ -30,6 +31,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Global request/response logging for debugging and observability.
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   // Swagger is a development aid — never expose the API surface in prod.
   if (process.env.NODE_ENV !== 'production') {
