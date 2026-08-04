@@ -72,7 +72,7 @@ services:
     depends_on:
       - postgres
       - crypto
-    command: sh -c "pnpm db:push && pnpm run start:dev api"
+    command: pnpm run start:dev api
     networks:
       - walletmvp-network
 
