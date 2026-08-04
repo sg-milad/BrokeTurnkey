@@ -17,11 +17,11 @@ sequenceDiagram
     participant V as HashiCorp Vault
 
     note over GO: Container starts
-    GO->>GO: Read VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID from env
+    GO->>GO: Read VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID, CRYPTO_AUTH_TOKEN from env
     GO->>V: POST /v1/auth/approle/login {role_id, secret_id}
     V-->>GO: {client_token, lease_duration: 3600}
     GO->>GO: Store token in memory
-    GO->>GO: Start HTTP server on CRYPTO_PORT
+    GO->>GO: Start HTTP server on CRYPTO_PORT (every request except /health requires X-Crypto-Token)
     GO->>GO: Start token renewal timer (fires at 75% of TTL = ~45 min)
 
     note over GO,V: Token renewal loop (every ~45 min)
@@ -52,7 +52,7 @@ sequenceDiagram
     API->>API: Verify stamp signature
     API->>WS: onboardorganization(orgId)
 
-    WS->>GO: POST /wallet/create {orgId}
+    WS->>GO: POST /wallet/create {X-Crypto-Token: CRYPTO_AUTH_TOKEN}
 
     note over GO: All key generation happens here
     GO->>GO: Generate 256-bit entropy
@@ -204,24 +204,19 @@ sequenceDiagram
 
 ---
 
-## 5. SecretID self-rotation on startup
+## 5. SecretID rotation (manual, every 30 days)
 
-The Go crypto service generates a new SecretID immediately after each
-AppRole login, so that the next restart always has a fresh credential.
+The Go crypto service does **not** self-rotate the SecretID. It is valid for
+30 days (`secret_id_ttl=720h`) with unlimited uses; you rotate it manually
+before the TTL expires (full procedure in `docs/VAULT_INIT.md`):
 
-```mermaid
-sequenceDiagram
-    participant GO as Go Crypto Service
-    participant V as HashiCorp Vault
-    participant ENV as .env file (host)
-
-    note over GO: Container starts
-    GO->>ENV: Read VAULT_ROLE_ID, VAULT_SECRET_ID
-    GO->>V: POST /v1/auth/approle/login {role_id, secret_id}
-    V-->>GO: {client_token} — SecretID is now consumed (single-use)
-
-    GO->>V: POST /v1/auth/approle/role/wallet-signer/secret-id
-    V-->>GO: {secret_id: "<new SecretID>"}
-    GO->>ENV: Write new VAULT_SECRET_ID to .env (or rotated env file)
-    GO->>GO: Begin serving HTTP requests
+```bash
+source .env.vault
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
+  vault write -f auth/approle/role/wallet-signer/secret-id
+# then update VAULT_SECRET_ID in .env and restart the crypto container
 ```
+
+> Historical note: an earlier design had the Go service generate a new
+> single-use SecretID after every login (self-rotation on startup). That code
+> path was removed — see `docs/VAULT.md` → "SecretID rotation".

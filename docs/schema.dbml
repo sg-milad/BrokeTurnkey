@@ -43,8 +43,9 @@ Table api_keys {
   id            uuid        [pk, default: `gen_random_uuid()`]
   org_id        uuid        [not null, ref: > organizations.id]
   name          varchar(100) [not null, note: 'Human label e.g. "production key"']
-  public_key    text        [not null, unique, note: 'P-256 public key (PEM or compressed hex) used to verify stamps']
+  public_key    varchar     [not null, unique, note: 'P-256 public key (PEM) used to verify stamps']
   key_id        varchar(64)  [not null, unique, note: 'Short ID sent in the X-Stamp header']
+  scopes        jsonb       [not null, default: `'["*"]'::jsonb`, note: 'Permitted actions, e.g. ["wallet:sign","key:write"] or ["*"] for all']
   status        varchar(20)  [not null, default: 'active', note: 'active | revoked']
   last_used_at  timestamptz
   expires_at    timestamptz
@@ -135,7 +136,7 @@ Table signing_requests {
 
 Table wallet_nonces {
   id            uuid     [pk, default: `gen_random_uuid()`]
-  wallet_id     uuid     [not null, unique, ref: > wallets.id]
+  wallet_id     uuid     [not null, ref: > wallets.id]
   chain_id      integer  [not null]
   nonce         integer  [not null, default: 0]
   updated_at    timestamptz [not null, default: `now()`]

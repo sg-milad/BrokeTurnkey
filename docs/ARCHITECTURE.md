@@ -21,7 +21,7 @@ graph TD
     end
 
     subgraph Crypto ["Go Crypto Service Container (internal port)"]
-        CryptoHTTP["HTTP Server\nAccepts signing and wallet-creation requests"]
+        CryptoHTTP["HTTP Server\nRequires X-Crypto-Token on every request except /health"]
         CryptoLogic["Crypto Core\nBIP39 · BIP32 · AES-256-GCM · RLP · keccak256 · secp256k1"]
         VaultClient["Vault Client\nAppRole login · token renewal · transit encrypt/decrypt"]
     end
@@ -41,7 +41,7 @@ graph TD
     WalletLib --> GasLib
     WalletLib --> DbLib
     GasLib --> DbLib
-    WalletLib -->|"HTTP POST (internal Docker network)"| CryptoHTTP
+    WalletLib -->|"HTTP POST + X-Crypto-Token (internal Docker network)"| CryptoHTTP
     CryptoHTTP --> CryptoLogic
     CryptoLogic --> VaultClient
     VaultClient -->|"AppRole login + transit calls"| Transit
@@ -174,6 +174,8 @@ All key material — plaintext or ciphertext — is handled exclusively here.
 - Authenticates to Vault independently using its own AppRole credentials
   (`wallet-signer` role) at startup
 - Renews its Vault token on a background timer (at ~75% of TTL)
+- **Authenticates every inbound request** with the shared `CRYPTO_AUTH_TOKEN`
+  secret (`X-Crypto-Token` header) — only `GET /health` is unauthenticated
 - Handles `POST /wallet/create`: generates BIP39 mnemonic and seed, generates
   a random DEK, AES-256-GCM encrypts the seed, calls Vault to encrypt the DEK,
   derives the first Ethereum address, returns all ciphertext + address to NestJS,
@@ -181,23 +183,34 @@ All key material — plaintext or ciphertext — is handled exclusively here.
 - Handles `POST /wallet/derive`: receives org seed ciphertext, calls Vault to
   decrypt the DEK, decrypts the seed, derives the child key at the requested
   index, returns the Ethereum address, zeroes all key material
-- Handles `POST /wallet/sign`: receives org seed ciphertext + raw transaction
-  fields, calls Vault to decrypt the DEK, decrypts the seed, derives the child
-  key, RLP-encodes the transaction fields, computes keccak256 hash, signs with
-  secp256k1, returns `{ signature, txHash }`, zeroes all key material
+- Handles `POST /wallet/sign-transaction` (alias `/wallet/sign`): receives org
+  seed ciphertext + raw transaction fields, calls Vault to decrypt the DEK,
+  decrypts the seed, derives the child key, RLP-encodes the transaction fields,
+  computes keccak256 hash, signs with secp256k1, returns
+  `{ signature, txHash, rawTx }`, zeroes all key material
+- Handles `POST /wallet/sign-hash`: signs a raw 32-byte hash (EIP-712 /
+  EIP-191) with the derived key
 
 **What it does NOT do:**
 
 - Never stores any key material to disk
-- Never logs plaintext key material
+- Never logs plaintext key material (secrets are logged as `<set>`, never
+  their values)
 - Never exposes its HTTP port outside the Docker internal network
+- Never accepts an unauthenticated request (except `/health`)
+
+**Hardening:** request bodies are capped at 1 MiB, the HTTP server enforces
+read/write/idle timeouts and a header cap, and every transaction field
+(chainId, value, gas, fees, `to` address) is validated before it can
+influence a signature.
 
 **Vault identity:** `wallet-signer` AppRole — policy scoped to
 `transit/encrypt/wallet-dek` and `transit/decrypt/wallet-dek` only.
 
 **Communication:** Listens on `CRYPTO_PORT` (env var). Accessible only on
 the internal Docker network (`walletmvp-network`). NestJS calls it via
-`http://crypto:${CRYPTO_PORT}`.
+`http://crypto:${CRYPTO_PORT}` with the `X-Crypto-Token` header. See
+`docs/CRYPTO_SERVICE.md` for the full endpoint reference.
 
 ---
 
@@ -223,8 +236,9 @@ Docker container. It plays one narrow role: KEK (Key Encryption Key) store.
 
 - Does not store seeds, private keys, or any wallet data
 - Does not communicate with NestJS — only the Go crypto service
-- Does not expose any endpoint outside the Docker internal network (except
-  port 8200 for local dev UI access)
+- Does not expose any endpoint outside the Docker internal network. Port 8200
+  is **not published to the host by default** — use
+  `docker-compose.dev.yml` for local UI / manual unseal access
 
 **Protection model:** The Vault master key is split into 3 Shamir shares
 (threshold: 2). Vault is sealed on every restart and must be manually
@@ -251,6 +265,9 @@ encrypted key material.
 - Never holds plaintext seeds, DEKs, or private keys
 - A full database breach alone exposes nothing cryptographically useful —
   an attacker would also need to compromise Vault
+- Port 5432 is **not published to the host by default** — the API container
+  reaches Postgres over the Docker network; host tooling (psql,
+  drizzle-kit studio) should use `docker-compose.dev.yml` or `docker exec`
 
 ---
 
@@ -259,7 +276,7 @@ encrypted key material.
 | From              | To                | Protocol                       | What is sent                          |
 | ----------------- | ----------------- | ------------------------------ | ------------------------------------- |
 | Client            | NestJS API        | HTTPS + X-Stamp                | Signed API requests                   |
-| NestJS API        | Go Crypto Service | HTTP (internal Docker network) | Ciphertext + tx fields                |
+| NestJS API        | Go Crypto Service | HTTP + `X-Crypto-Token` (shared secret, internal Docker network) | Ciphertext + tx fields |
 | Go Crypto Service | HashiCorp Vault   | HTTP (internal Docker network) | AppRole login, encrypt/decrypt calls  |
 | NestJS API        | PostgreSQL        | TCP (internal Docker network)  | SQL queries — reads/writes ciphertext |
 | NestJS API        | External RPC      | HTTPS                          | Signed raw transactions for broadcast |
@@ -267,6 +284,11 @@ encrypted key material.
 **Nothing sensitive crosses the Docker network boundary.** All plaintext key
 material exists only inside the Go crypto service process memory, for the
 shortest possible duration, and is zeroed immediately after use.
+
+Every NestJS → Go call is additionally authenticated with the shared
+`CRYPTO_AUTH_TOKEN` secret (`X-Crypto-Token` header) — the Go service rejects
+any request without it. See `docs/CRYPTO_SERVICE.md` for how to generate and
+use the token.
 
 ---
 

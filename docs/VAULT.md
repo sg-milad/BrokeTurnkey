@@ -131,8 +131,12 @@ path "auth/approle/role/wallet-signer/secret-id" {
 }
 ```
 
-The third path grants the Go service permission to generate its own next
-SecretID immediately after login (self-rotating credentials).
+The third path exists so a human operator can generate replacement SecretIDs
+for the manual 30-day rotation (see below). The Go service itself does **not**
+rotate the SecretID at runtime.
+
+> Note: the values below (30-day SecretID TTL, unlimited uses) are the
+> current runbook configuration — `docs/VAULT_INIT.md` is authoritative.
 
 ```bash
 docker cp /tmp/wallet-signer-policy.hcl walletmvp-vault:/tmp/
@@ -148,8 +152,8 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
     token_policies="wallet-signer" \
     token_ttl=1h \
     token_max_ttl=24h \
-    secret_id_ttl=10m \
-    secret_id_num_uses=1
+    secret_id_ttl=720h \
+    secret_id_num_uses=0
 ```
 
 Read the RoleID (not sensitive — safe to store in config):
@@ -168,6 +172,7 @@ Add to the Go crypto service's env:
 ```bash
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
+CRYPTO_AUTH_TOKEN=REPLACE_ME   # shared secret with the NestJS API — see docs/CRYPTO_SERVICE.md
 ```
 
 ### Step 6 — Enable audit logging
@@ -184,12 +189,10 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 ### At startup
 
 1. Go reads `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID` from env
-2. Go calls `POST /v1/auth/approle/login` — the SecretID is consumed (single-use)
+2. Go calls `POST /v1/auth/approle/login` with the RoleID + SecretID
 3. Vault returns a token with a 1-hour TTL
-4. Go immediately calls `POST /v1/auth/approle/role/wallet-signer/secret-id`
-   to generate a new SecretID and writes it to the env file for the next restart
-5. Go stores the Vault token in memory and starts the HTTP server
-6. Go starts a background token renewal timer
+4. Go stores the Vault token in memory and starts the HTTP server
+5. Go starts a background token renewal timer
 
 ### Token renewal timing
 
@@ -205,18 +208,27 @@ The `token_max_ttl=24h` sets a hard ceiling — after 24 hours the token cannot
 be renewed regardless of how many renewal calls were made, and Go must perform
 a fresh AppRole login.
 
-### SecretID self-rotation
+### SecretID rotation (manual — every 30 days)
 
-The SecretID is configured as single-use (`secret_id_num_uses=1`) and expires
-in 10 minutes. This means:
+The SecretID is configured with a **30-day TTL** (`secret_id_ttl=720h`) and
+unlimited uses (`secret_id_num_uses=0`). It is **not** self-rotated by the Go
+service — you must rotate it before the TTL expires:
 
-- After the Go service consumes the SecretID at login, it is permanently invalidated
-- If an attacker intercepts the SecretID before it is used, they have at most 10 minutes to use it
-- After the Go service logs in, it immediately generates the next SecretID and
-  persists it to the env file — the next restart is always covered
+```bash
+source .env.vault
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
+  vault write -f auth/approle/role/wallet-signer/secret-id
+```
 
-This rotation is fully automatic. The only manual step is the very first
-SecretID generated in `VAULT_INIT.md`.
+Then update `VAULT_SECRET_ID` in `.env` and restart the crypto container.
+The full procedure is in `docs/VAULT_INIT.md` (section "SecretID Rotation").
+
+> Historical note: an earlier design used a single-use, 10-minute SecretID
+> that the Go service rotated itself after each login. That code path was
+> removed — the current design trades a shorter blast radius for much simpler
+> operations. If you want the stronger posture back, restore the self-rotation
+> loop in `cmd/crypto/vault.go` and set `secret_id_ttl=10m,
+> secret_id_num_uses=1`.
 
 ### At wallet creation
 

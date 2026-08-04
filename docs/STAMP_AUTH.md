@@ -246,7 +246,7 @@ sequenceDiagram
     Attacker->>Guard: HTTP request (same body, same X-Stamp)
     Guard->>Guard: Split X-Stamp → signature, timestamp, key_id
     Guard->>Guard: Check timestamp: now - timestamp = 6 min > 5 min window
-    Guard-->>Attacker: 401 Unauthorized { error: "stamp_expired" }
+    Guard-->>Attacker: 401 Unauthorized { message: "Stamp timestamp is out of valid range" }
 ```
 
 ---
@@ -270,38 +270,32 @@ sequenceDiagram
     Guard->>Guard: SHA-256(modified_body) ≠ SHA-256(original_body)
     Guard->>Guard: ECDSA verify fails — payload doesn't match signature
 
-    Guard-->>Attacker: 401 Unauthorized { error: "invalid_stamp" }
+    Guard-->>Attacker: 401 Unauthorized { message: "Invalid signature" }
 ```
 
 ---
 
-## Schema additions to api_keys
+## Schema status for api_keys
 
-The existing `api_keys` table already has the necessary columns. Two columns
-should be added to support the stamp system fully:
+Two columns were proposed for the stamp system. Current status:
 
-### Add: `created_by_key_id`
-
-```
-created_by_key_id  uuid  [ref: > api_keys.id, note: 'Which API key registered this key — null for the first (bootstrap) key']
-```
-
-**Why:** Audit trail for key creation. If a key is later found to be
-malicious, you need to know which key created it. For the very first key
-registered by an org (the bootstrap key — created via a one-time root token
-flow, see below), this is null.
-
-### Add: `scopes`
+### Implemented: `scopes`
 
 ```
-scopes  text[]  [not null, default: '{*}', note: 'Array of permitted actions e.g. {wallet:sign, wallet:create} or {*} for all']
+scopes  jsonb  [not null, default: '["*"]', note: 'Array of permitted actions e.g. ["wallet:sign", "key:write"] or ["*"] for all']
 ```
 
 **Why:** Not all API keys should be able to do everything. A key used by an
 automated signing service should not be able to create new wallets or revoke
 other keys. Scopes allow per-key permission restriction. The `*` wildcard
-means unrestricted, which is the default for MVP simplicity but can be
-narrowed per key.
+means unrestricted, which is the default; the code creates keys with `['*']`
+unless narrower scopes are supplied at registration.
+
+Scope enforcement is live on these routes (a global `ScopesGuard` rejects
+with `403 insufficient_scope`):
+
+- `key:write` — register/revoke API keys, create/delete users
+- `policy:write` — create/delete policies
 
 Scope values (initial set):
 
@@ -311,6 +305,16 @@ Scope values (initial set):
 - `wallet:read` — read wallet details and history
 - `policy:write` — create and delete policies
 - `key:write` — create and revoke API keys
+
+### Not yet implemented: `created_by_key_id`
+
+```
+created_by_key_id  uuid  [ref: > api_keys.id, note: 'Which API key registered this key — null for the first (bootstrap) key']
+```
+
+**Why:** Audit trail for key creation. If a key is later found to be
+malicious, you need to know which key created it. Planned, not yet in the
+schema.
 
 ---
 
@@ -339,26 +343,45 @@ After the first API key is registered, the platform sets
 `bootstrap_token_hash = null`, permanently disabling the bootstrap flow for
 that org.
 
+> **Known issue (current code):** the service layer implements this flow
+> (`AuthService.registerApiKey` validates the token via `validateBootstrapToken`
+> with a constant-time comparison, then nulls the hash), but the
+> `ApiKeysController` has not been wired to read the `X-Bootstrap-Token`
+> header or the stamp context yet — it passes `undefined` for both, so the
+> route currently always returns
+> `400 "Either bootstrap token or valid API key required"`. Wiring the
+> controller is a prerequisite for the global stamp guard.
+
 ---
 
 ## Error responses
 
-All failures return `401 Unauthorized` with a JSON body:
+All stamp failures return `401 Unauthorized` with a JSON body
+(`{ statusCode, message, error }` — NestJS default shape). The guard returns
+the reason in `message`:
 
-| `error` field        | Cause                                              |
-| -------------------- | -------------------------------------------------- |
-| `missing_stamp`      | `X-Stamp` header absent                            |
-| `malformed_stamp`    | Header does not parse into three parts             |
-| `stamp_expired`      | Timestamp older than 5 minutes                     |
-| `stamp_future`       | Timestamp more than 30 seconds in the future       |
-| `key_not_found`      | `key_id` not in `api_keys` table                   |
-| `key_revoked`        | `status = revoked`                                 |
-| `key_expired`        | `expires_at` is in the past                        |
-| `insufficient_scope` | Key does not have the scope required by this route |
-| `invalid_stamp`      | Signature verification failed                      |
+| `message`                        | Cause                                            |
+| -------------------------------- | ------------------------------------------------ |
+| `Missing X-Stamp header`         | `X-Stamp` header absent                          |
+| `Invalid stamp format`           | Header does not parse into three parts           |
+| `Invalid timestamp in stamp`     | Timestamp is not an integer                      |
+| `Stamp timestamp is out of valid range` | Older than 5 minutes or more than 30 s in the future |
+| `API key not found`              | `key_id` not in `api_keys` table                 |
+| `API key is not active`          | `status = revoked`                               |
+| `API key has expired`            | `expires_at` is in the past                      |
+| `Invalid signature encoding`     | Signature is not valid base64url                 |
+| `Invalid signature length`       | Decoded signature outside 68–75 bytes (DER P-256) |
+| `Invalid signature`              | Signature verification failed or key malformed   |
 
-Deliberately vague error codes are avoided — leaking which step failed is not
-a meaningful security risk for ECDSA (unlike timing attacks on HMAC), and
+Related non-stamp errors:
+
+- `403 {"message":"insufficient_scope"}` — the key is valid but lacks the
+  scope required by the route (see Scopes below).
+- `429 Too Many Requests` + `Retry-After` header — rate limit exceeded
+  (120 req/min per key or per IP).
+
+Deliberately vague error codes are avoided — leaking which step failed is not a
+meaningful security risk for ECDSA (unlike timing attacks on HMAC), and
 precise errors make debugging much easier for integrating organizations.
 
 ---

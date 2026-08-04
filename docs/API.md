@@ -45,13 +45,40 @@ The `StampVerifierGuard` (`@app/auth`) intercepts every incoming request:
 
 1. Parses the `X-Stamp` header into its three components
 2. Looks up the API key in PostgreSQL to retrieve the associated public key
-3. Reconstructs the canonical payload from the request
-4. Verifies the P-256 signature against the stored public key
+3. Reconstructs the canonical payload from the **raw request bytes** (the
+   body is captured before parsing — the hash covers exactly what the client
+   signed, never a re-serialized version of the parsed JSON)
+4. Verifies the P-256 signature (DER-encoded ES256) against the stored
+   public key
 5. Rejects the request if:
    - The header is missing or malformed
-   - The API key does not exist or has been revoked
+   - The API key does not exist, is revoked, or is expired
    - The signature is invalid
    - The timestamp is outside the allowed window (prevents replay attacks)
+6. On success, attaches `{ orgId, apiKeyId, keyId, scopes }` to the request
+   context and updates `last_used_at` (fire-and-forget)
+
+#### Scopes
+
+Every API key carries a `scopes` array. A `*` scope grants everything; a
+narrowed key can only perform the listed actions. Scope checks are enforced
+by a global `ScopesGuard`:
+
+| Action                                  | Required scope |
+| --------------------------------------- | -------------- |
+| Register / revoke API keys              | `key:write`    |
+| Create / delete users                   | `key:write`    |
+| Create / delete policies                | `policy:write` |
+
+A key without the required scope gets `403 {"statusCode":403,"message":"insufficient_scope","error":"Forbidden"}`.
+
+#### Rate limiting
+
+Every request is rate limited by a global guard: **120 requests per minute**
+per API key (when a stamp is present) or per client IP (anonymous requests).
+Excess requests get `429 Too Many Requests` with a `Retry-After` header.
+Limits are enforced in the NestJS gateway layer; the default storage is
+in-memory (use a shared store when running multiple API instances).
 
 #### Why stamps instead of tokens?
 
@@ -196,7 +223,12 @@ error. No cryptographic operations are performed.
 
 The `GasService` (`@app/gas`) handles transaction assembly:
 - Estimates gas via `eth_estimateGas` on the configured RPC provider
-- Manages nonce sequencing per wallet using the `wallet_nonces` table
+- **Reserves the nonce atomically**: a single `INSERT ... ON CONFLICT`
+  upsert increments the per-wallet counter and returns the reserved value.
+  The reservation is **permanent** — concurrent requests can never observe
+  the same nonce, and a failed broadcast leaves a gap (Ethereum tolerates
+  gaps; the guarantee that matters is that a nonce is never used twice).
+  Clients must not supply a nonce.
 - Assembles the complete raw transaction fields
 
 #### Phase 3: Cryptographic Signing
@@ -225,29 +257,31 @@ outcome and timestamp.
 ### Idempotency
 
 Signing requests are idempotent by design. If a client submits the same
-transaction fields multiple times (same nonce, same destination, same value),
-the system will detect the duplicate and return the existing signing request
-rather than creating a new one. This prevents accidental double-spends caused
-by network retries.
+transaction fields multiple times, the system returns the existing signing
+request rather than creating a new one. This prevents accidental
+double-spends caused by network retries.
 
-The idempotency key is derived from the transaction fields themselves (nonce +
-to + value + data), not from a client-provided header. This ensures that even
-if a client loses track of its own request IDs, the system maintains consistency.
+The idempotency key is derived server-side as
+`sha256(walletId:chainId:to:value:data)` and enforced by a **unique index**
+on `signing_requests.idempotency_key` — the index is the arbiter even when
+two identical requests race: the loser returns the winner's result. A
+previously failed request is reused (reset to pending) on retry.
 
 ---
 
 ## Errors
 
-The API uses standard HTTP status codes with structured JSON error bodies:
+The API uses standard HTTP status codes with structured JSON error bodies
+(NestJS default shape: `{ statusCode, message, error }`):
 
-| Status Code | Meaning                                    | Example Causes                          |
-| ----------- | ------------------------------------------ | --------------------------------------- |
-| 400         | Bad Request                                | Invalid input, org not onboarded        |
-| 401         | Unauthorized                               | Missing/invalid stamp, expired timestamp|
-| 404         | Not Found                                  | Wallet or org does not exist            |
-| 409         | Conflict                                   | Duplicate signing request               |
-| 422         | Unprocessable Entity                       | Policy violation                        |
-| 500         | Internal Server Error                      | Go service unreachable, Vault down      |
+| Status Code | Meaning                                       | Example Causes                              |
+| ----------- | --------------------------------------------- | ------------------------------------------- |
+| 400         | Bad Request / validation failure              | Invalid input, org not onboarded, permanent signing failure |
+| 401         | Unauthorized                                  | Missing/invalid/expired stamp, revoked key  |
+| 403         | Forbidden                                     | Policy denial, insufficient API key scope   |
+| 404         | Not Found                                     | Wallet or org does not exist                |
+| 429         | Too Many Requests                             | Rate limit exceeded (per API key or IP)     |
+| 500         | Internal Server Error                         | Go service unreachable, Vault down, transient signing failure |
 
 ### Error Response Format
 
@@ -259,60 +293,85 @@ The API uses standard HTTP status codes with structured JSON error bodies:
 }
 ```
 
-Error messages are deliberately specific to aid debugging. Unlike some APIs that
-return vague errors to avoid leaking implementation details, this API provides
-precise failure reasons because:
-1. Clients need actionable feedback to correct their requests
-2. The security model does not rely on obscurity — authentication is cryptographic
-3. Integrating organizations benefit from clear diagnostics
+Validation failures return an array of messages:
+
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "label must be longer than or equal to 1 characters",
+    "orgId must be a UUID"
+  ],
+  "error": "Bad Request"
+}
+```
+
+### Stamp authentication errors (all `401 Unauthorized`)
+
+The guard returns the reason directly in `message`:
+
+| `message`                        | Cause                                            |
+| -------------------------------- | ------------------------------------------------ |
+| `Missing X-Stamp header`         | `X-Stamp` header absent                          |
+| `Invalid stamp format`           | Header does not parse into three dot-separated parts |
+| `Invalid timestamp in stamp`     | Timestamp is not an integer                      |
+| `Stamp timestamp is out of valid range` | Older than 5 minutes or more than 30 s in the future |
+| `API key not found`              | `key_id` not in `api_keys` table                 |
+| `API key is not active`          | `status = revoked`                               |
+| `API key has expired`            | `expires_at` is in the past                      |
+| `Invalid signature encoding`     | Signature is not valid base64url                 |
+| `Invalid signature length`       | Decoded signature outside 68–75 bytes (DER P-256) |
+| `Invalid signature`              | Signature verification failed or key malformed   |
 
 ### Common Error Scenarios
 
-- **"organization has not been onboarded"** (400): The org exists but has not
-  completed the onboarding flow. Call `POST /organizations/:id/onboard` first.
-- **"User with id \"...\" does not exist"** (404): The `userId` provided in a
+- **`"organization has not been onboarded"` (400)**: The org exists but has
+  not completed the onboarding flow. Call `POST /organizations/:id/onboard` first.
+- **`"User with id \"...\" does not exist"` (404)**: The `userId` provided in a
   wallet creation request does not match any user in the database.
-- **"Wallet does not belong to this org"** (400): The wallet ID and org ID do
+- **`"Wallet does not belong to this org"` (400)**: The wallet ID and org ID do
   not match — likely a logic error in the client.
-- **"stamp_expired"** (401): The timestamp in the X-Stamp header is outside the
-  allowed window (default: ±5 minutes from server time).
-- **"invalid_stamp"** (401): The P-256 signature does not verify against the
-  stored public key for the given API key.
+- **`"Transaction signing failed (permanent)"` / `"Transaction signing failed (retryable)"` (400/500)**:
+  Signing or broadcast failed. Details are logged server-side and stored in
+  the signing request's `failure_reason` — they are deliberately **not**
+  returned to the client to avoid leaking crypto/RPC internals.
+- **`"Policy denied: ..."` (403)**: The signing request was blocked by a
+  policy rule (spend limit, allowlist, time lock).
+- **`"insufficient_scope"` (403)**: The API key is valid but lacks the scope
+  required by the route (see Scopes above).
 
 ---
 
 ## Request Validation
 
-All request bodies are validated using `class-validator` decorators before reaching
-business logic. Validation occurs at the DTO (Data Transfer Object) layer:
+All request bodies are validated by a **global `ValidationPipe`** before
+reaching business logic, using `class-validator` decorators at the DTO layer:
+
+- `whitelist: true` — properties without a validator decorator are stripped
+- `forbidNonWhitelisted: true` — unknown properties are **rejected** (400),
+  which prevents mass-assignment
+- `transform: true` — payloads are coerced to their declared types
 
 ### Validation Rules
 
 - **Strings**: Required fields enforce minimum length, optional fields use
   `IsOptional()`
 - **UUIDs**: Enforced via `IsUUID()` decorator
-- **Numbers**: Validated with `IsNumber()` and range checks where applicable
-- **Nested objects**: Validated recursively
+- **Numbers**: Validated with `IsNumber()` / `IsInt()` and range checks where
+  applicable
+- **Nested objects**: Validated recursively (`ValidateNested` + `Type`)
 
-### Validation Failure
+### Notable DTO behaviours
 
-Invalid requests return `400 Bad Request` with a detailed error message listing
-all validation failures. For example:
+- `POST /wallets/:id/sign-transaction` — the server assigns the nonce itself;
+  `txFields.nonce` is **optional** and ignored if provided.
+- `POST /wallets/:id/sign-message` — `message` is capped at 4096 characters.
+- `POST /wallets/:id/sign-typed` — EIP-712 `domain.name` must be on the
+  `EIP712_DOMAIN_ALLOWLIST` env allowlist when it is non-empty (empty =
+  allow all domains).
 
-```json
-{
-  "statusCode": 400,
-  "message": [
-    "derivationIndex must be a positive integer",
-    "orgId must be a valid UUID"
-  ],
-  "error": "Bad Request"
-}
-```
-
-Validation happens before authentication checks in some cases (malformed JSON
-or missing required fields), but stamp verification always runs before any
-business logic executes.
+Invalid requests return `400 Bad Request` with an array of messages listing
+all validation failures (see Errors).
 
 ---
 
@@ -416,8 +475,122 @@ with security.
 
 ### Rate Limiting
 
-Rate limiting is applied per API key to prevent abuse. Limits are configurable
-and enforced at the NestJS API gateway layer.
+Rate limiting is applied globally to prevent abuse: **120 requests per
+minute** per tracker, where the tracker is the API key (from the stamp) for
+authenticated requests and the client IP otherwise. Breaches return
+`429 Too Many Requests` with a `Retry-After` header. The default storage is
+in-memory — switch to a shared store (e.g. Redis) when running more than one
+API instance.
+
+---
+
+## Examples
+
+### Constructing an X-Stamp (Node.js)
+
+The stamp is a DER-encoded P-256 signature over
+`<timestamp_ms>.<base64url(SHA-256(raw body))>`. Generate a keypair once,
+register the public key, then sign every request:
+
+```js
+const {
+  generateKeyPairSync,
+  createHash,
+  sign,
+} = require('node:crypto');
+
+// 1. Generate the P-256 keypair ONCE (client side). The private key never
+//    leaves your machine — only the public key is registered with the API.
+const { publicKey, privateKey } = generateKeyPairSync('ec', {
+  namedCurve: 'prime256v1',
+});
+console.log('Register this public key:', publicKey.export({ type: 'spki', format: 'pem' }));
+
+// 2. Sign a request. body must be the EXACT raw bytes you send.
+function makeStamp(bodyBytes, keyId) {
+  const timestamp = Date.now();
+  const bodyHash = createHash('sha256').update(bodyBytes).digest('base64url');
+  const payload = `${timestamp}.${bodyHash}`;
+  const signature = sign('sha256', Buffer.from(payload), {
+    key: privateKey,
+    dsaEncoding: 'der', // must match the server (DER, not raw r||s)
+  }).toString('base64url');
+  return `${signature}.${timestamp}.${keyId}`;
+}
+
+// 3. Use it:
+//    const rawBody = JSON.stringify({ orgId: '...' });
+//    fetch(url, {
+//      method: 'POST',
+//      headers: { 'Content-Type': 'application/json', 'X-Stamp': makeStamp(rawBody, '<key_id>') },
+//      body: rawBody,
+//    });
+```
+
+> The server hashes the **raw body bytes** it receives. Serialize the body
+> exactly once and sign those same bytes (do not rely on JSON.stringify
+> round-tripping after parsing). For GET requests with no body, sign
+> `SHA-256("")` — `base64url` is `47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU`.
+
+### Worked walkthrough (curl)
+
+```bash
+API=http://localhost:3000
+
+# 1. Create an organization
+curl -s -X POST $API/organizations \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Acme Corp", "slug": "acme"}'
+# → { id: "<org-id>", slug: "acme", name: "Acme Corp", ... }
+
+# 2. Onboard it — creates the org seed + first wallet, and returns the
+#    one-time bootstrap token used to register your first API key
+curl -s -X POST $API/organizations/<org-id>/onboard \
+  -H 'Content-Type: application/json' -d '{}'
+# → { orgId: "<org-id>", firstAddress: "0x...", bootstrapToken: "<token>" }
+
+# 3. Register your first API key with the bootstrap token
+curl -s -X POST $API/organizations/<org-id>/api-keys \
+  -H 'Content-Type: application/json' \
+  -H 'X-Bootstrap-Token: <token>' \
+  -d '{"name": "prod", "publicKey": "<P-256 public key PEM>", "scopes": ["*"]}'
+# → 201 { id, keyId, name, publicKey, scopes, createdAt }
+
+# ⚠ Known issue: the api-keys route currently always 400s with
+#   "Either bootstrap token or valid API key required" — the controller has
+#   not been wired to read the X-Bootstrap-Token header or the stamp context
+#   yet. Key registration is expected to be fixed before the auth guard is
+#   enabled globally (see docs/STAMP_AUTH.md bootstrap section).
+
+# 4. Derive a wallet (requires a valid stamp — replace X-Stamp with a
+#    freshly constructed value, see the Node snippet above)
+curl -s -X POST $API/wallets \
+  -H 'Content-Type: application/json' \
+  -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>' \
+  -d '{"orgId": "<org-id>", "label": "Treasury"}'
+# → { walletId: "<wallet-id>", address: "0x..." }
+
+# 5. Sign + broadcast a transaction (stamp required)
+curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
+  -H 'Content-Type: application/json' \
+  -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>' \
+  -d '{
+    "orgId": "<org-id>",
+    "txFields": {
+      "chainId": 84532,
+      "to": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+      "value": "1000000000000000000",
+      "data": "0x"
+    }
+  }'
+# → { txHash, signature, receipt, status, signingRequestId }
+#   (gasLimit/maxFeePerGas/maxPriorityFeePerGas are estimated when omitted;
+#    the nonce is always assigned by the server)
+
+# 6. Inspect what was signed
+curl -s $API/organizations/<org-id>/signing-requests \
+  -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>'
+```
 
 ---
 
@@ -425,6 +598,7 @@ and enforced at the NestJS API gateway layer.
 
 - `docs/ARCHITECTURE.md` — System architecture and component definitions
 - `docs/STAMP_AUTH.md` — Detailed stamp authentication specification
+- `docs/CRYPTO_SERVICE.md` — Go crypto service API reference and auth token guide
 - `docs/KEY_MANAGEMENT.md` — Key generation, storage, and rotation procedures
 - `docs/VAULT.md` — HashiCorp Vault setup and operational guide
 - `docs/TASKS.md` — Implementation roadmap and completion status

@@ -4,11 +4,22 @@ Run this every time you set up Vault from scratch (new machine, wiped volume,
 or after `docker compose down -v`). After the first run, the only thing you
 do on restart is **unseal** — not re-init.
 
+> **Host ports:** the base `docker compose up -d` does **not** publish Vault
+> (8200) or Postgres (5432) to the host. This runbook's `curl localhost:8200`
+> checks and the Vault UI need the dev override:
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+> ```
+>
+> Everything else (`docker exec`, the unseal script) works without it.
+
 ---
 
 ## Pre-flight checklist
 
-- [ ] `docker compose up -d` has been run
+- [ ] `docker compose up -d` has been run (add `-f docker-compose.dev.yml`
+      if you need host access to ports 8200/5432)
 - [ ] All containers show `Up` in `docker compose ps`
 - [ ] `.env.vault` does NOT yet exist (or has been emptied)
 - [ ] `.gitignore` contains `.env.vault`
@@ -16,6 +27,13 @@ do on restart is **unseal** — not re-init.
 ---
 
 ## Step 1 — Wait for Vault to be ready
+
+```bash
+# Needs the dev override (host port 8200) OR run inside the container:
+docker exec walletmvp-vault vault status
+```
+
+With the dev override, the HTTP check also works:
 
 ```bash
 curl http://localhost:8200/v1/sys/health
@@ -158,13 +176,14 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
-Add RoleID and SecretID to the Go crypto service env:
+Add RoleID, SecretID, and the shared auth token to the Go crypto service env:
 
 ```bash
 # .env (for the Go crypto service container)
 VAULT_ADDR=http://vault:8200
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
+CRYPTO_AUTH_TOKEN=REPLACE_ME   # generate: openssl rand -hex 32 — see docs/CRYPTO_SERVICE.md
 CRYPTO_PORT=4000
 ```
 

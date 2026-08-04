@@ -272,4 +272,4 @@ derivation. Do not lowercase addresses when storing them.
 | Key material zeroed after use       | ✓        | Explicit Go zero loops            | Mnemonic string (GC, not zeroable)    |
 | Audit trail of all decryptions      | ✓        | Vault audit log + app audit_log   | Log files must be protected           |
 | Per-org blast radius                | ✓        | One DEK per organization          | Compromising Vault exposes all DEKs   |
-| Key rotation                        | ✓        | Vault key versioning + rewrap job | Requires background job to complete   |
+| Key rotation                        | ✓        | Vault Transit key versioning (rewrap job planned, not yet implemented) | Rotation requires a rewrap job to complete |

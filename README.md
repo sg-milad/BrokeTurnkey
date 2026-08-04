@@ -122,9 +122,16 @@ and Vault simultaneously.
 
 NestJS has no Vault credentials. The Go crypto service uses one AppRole
 (`wallet-signer`) scoped only to `transit/encrypt` and `transit/decrypt`.
-The AppRole SecretID is single-use and self-rotating — Go generates the next
-SecretID immediately after each login, so credentials rotate on every restart
-with no manual intervention after initial setup.
+The AppRole SecretID is rotated **manually every 30 days** (see
+`docs/VAULT_INIT.md`); the Vault token itself is renewed automatically by Go
+at 75% of its TTL.
+
+### Shared secret between NestJS and Go
+
+Every NestJS → Go call carries the `X-Crypto-Token` header with a shared
+secret (`CRYPTO_AUTH_TOKEN`) that the Go service requires on every endpoint
+except `/health`. See `docs/CRYPTO_SERVICE.md` for how to generate the token
+and call the Go service directly.
 
 ### Stamp-based authentication
 
@@ -152,6 +159,9 @@ cmd/
 docs/
   ARCHITECTURE.md   Component definitions, communication map, architecture diagram
   KEY_MANAGEMENT.md Cryptographic decisions, key hierarchy, security properties
+  STAMP_AUTH.md     P-256 stamp authentication spec (X-Stamp construction, replay)
+  API.md            API reference with worked curl examples
+  CRYPTO_SERVICE.md Go crypto service API reference + auth token guide
   SEQUENCE_DIAGRAMS.md All flow diagrams (Mermaid)
   VAULT.md          Vault concepts, runtime behaviour, key rotation
   VAULT_INIT.md     Step-by-step Vault setup runbook
@@ -168,11 +178,86 @@ scripts/
 
 ## Getting started
 
-1. Start all containers: `docker compose up -d`
-2. Initialise and unseal Vault (see `docs/VAULT_INIT.md`)
-3. Run database migrations: `pnpm db:push`
-4. Start the NestJS API: `pnpm run start:dev api`
-5. The Go crypto service starts automatically as a Docker container
-6. Call `POST /organizations/:id/onboard` to onboard your first organization
+1. **Prepare `.env`** — copy `.env.example` and fill in the required values:
 
-Detailed instructions for each step are in `docs/VAULT_INIT.md` and `docs/TASKS.md`.
+   ```bash
+   cp .env.example .env
+   # .env is gitignored — never commit it.
+   ```
+
+   Required values:
+
+   ```bash
+   # Postgres — docker compose refuses to start without this
+   POSTGRES_PASSWORD=change-me-please
+
+   # Shared secret between the NestJS API and the Go crypto service.
+   # Generate one with:  openssl rand -hex 32
+   CRYPTO_AUTH_TOKEN=<64 hex chars>
+
+   # Vault AppRole credentials (see docs/VAULT_INIT.md)
+   VAULT_ROLE_ID=...
+   VAULT_SECRET_ID=...
+   ```
+
+2. **Start all containers**: `docker compose up -d`
+
+   > The base compose file does **not** publish Postgres (5432) or Vault
+   > (8200) to the host. If you need them for local tooling (psql,
+   > drizzle-kit studio, Vault UI), use the dev override:
+   > `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`
+
+3. **Initialise and unseal Vault** (see `docs/VAULT_INIT.md`)
+
+4. Run database migrations: `pnpm db:push`
+
+5. Start the NestJS API: `pnpm run start:dev api`
+
+6. The Go crypto service starts automatically as a Docker container.
+   Verify it: `curl http://localhost:4000/health` (or with the dev override
+   — see `docs/CRYPTO_SERVICE.md` for full usage).
+
+7. Call `POST /organizations/:id/onboard` to onboard your first organization.
+
+### First request walkthrough
+
+```bash
+# 1. Create an organization
+curl -s -X POST http://localhost:3000/organizations \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Acme Corp", "slug": "acme"}'
+# → { id, slug, name, ... }
+
+# 2. Onboard it — generates the org seed, returns the first wallet address
+#    and the one-time bootstrap token for registering your first API key
+curl -s -X POST http://localhost:3000/organizations/<org-id>/onboard \
+  -H 'Content-Type: application/json' -d '{}'
+# → { orgId, firstAddress, bootstrapToken }
+
+# 3. Register your first API key using the bootstrap token
+curl -s -X POST http://localhost:3000/organizations/<org-id>/api-keys \
+  -H 'Content-Type: application/json' \
+  -H 'X-Bootstrap-Token: <bootstrapToken>' \
+  -d '{"name": "prod", "publicKey": "<P-256 public key in PEM>", "scopes": ["*"]}'
+```
+
+From there, every request must carry a **stamp** — a P-256 signature over the
+raw request body + timestamp in the `X-Stamp` header. See
+`docs/STAMP_AUTH.md` (spec) and `docs/API.md` (worked examples) for the
+construction.
+
+### Calling the Go crypto service directly (debugging only)
+
+Every endpoint except `/health` requires `X-Crypto-Token`. Example:
+
+```bash
+curl -s -X POST http://localhost:4000/wallet/create \
+  -H 'Content-Type: application/json' \
+  -H "X-Crypto-Token: $CRYPTO_AUTH_TOKEN" \
+  -d '{}'
+```
+
+Full endpoint reference with request/response examples:
+`docs/CRYPTO_SERVICE.md`.
+
+Detailed instructions for Vault setup are in `docs/VAULT_INIT.md`.

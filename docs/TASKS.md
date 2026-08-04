@@ -71,7 +71,7 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 The following tables must exist before Phase 4 begins:
 
-- `api_keys` table with columns: `id`, `org_id`, `name`, `public_key`, `key_id`, `scopes` (jsonb array, e.g., `["tx:sign", "key:write"]`), `status`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`
+- `api_keys` table with columns: `id`, `org_id`, `name`, `public_key`, `key_id`, `scopes` (jsonb array, e.g., `["wallet:sign", "key:write"]`; default `["*"]`), `status`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`
 - `policies` table with columns: `id`, `org_id`, `name`, `description`, `rule_type`, `rule_config` (jsonb), `applies_to`, `target_id`, `priority`, `status`, `created_at`, `updated_at`
 - `audit_log` table with columns: `id`, `org_id`, `user_id`, `wallet_id`, `api_key_id`, `event`, `status`, `metadata` (jsonb), `ip_address`, `user_agent`, `created_at`
 - `users` table with columns: `id`, `org_id`, `external_id`, `email`, `role`, `status`, `created_at`, `updated_at`
@@ -87,18 +87,27 @@ The following tables must exist before Phase 4 begins:
   - `effective_gas_price` — from receipt (nullable)
   - `error_message` — populated on failure (nullable)
   - `error_type` — enum: `'retryable' | 'permanent' | 'unknown'` for classification
-  - `idempotency_key` — unique constraint, derived from `{ walletId, nonce, to, value, data }`
-- `wallet_nonces` table gains columns:
-  - `reserved_at` — timestamp when nonce was reserved (nullable)
-  - `reservation_expires_at` — TTL for nonce reservation (default: 5 minutes)
-  - `chain_id` — nonces are per-wallet per-chain
+  - `idempotency_key` — unique constraint, derived from
+    `{ walletId, chainId, to, value, data }` (no nonce — the server reserves
+    nonces; see below)
+- `wallet_nonces` table: `chain_id` column added (nonces are per-wallet
+  per-chain). The `reserved_at` / `reservation_expires_at` columns from the
+  earlier design were **not** implemented — see the reserveNonce note above.
 
 **`@app/gas` — GasService**
 
 - `estimateFees(to, value, data, chainId)` — calls RPC for `eth_estimateGas` and `eth_feeHistory` (EIP-1559 fee data). Applies a 20% buffer to gas limit for safety. Returns `{ gasLimit, maxFeePerGas, maxPriorityFeePerGas }`
-- `reserveNonce(walletId, chainId)` — atomically increments `wallet_nonces.next_nonce` within a transaction and returns the reserved value. Sets `reserved_at` and `reservation_expires_at`. If reservation expires without broadcast, a background job releases it
-- `releaseNonce(walletId, chainId, nonce)` — decrements nonce if reservation expired or broadcast failed before confirmation. Called by cleanup job
-- `confirmNonce(walletId, chainId, nonce)` — marks nonce as permanently used after receipt confirmation. Clears reservation fields
+- `reserveNonce(walletId, chainId)` — **implemented as a single atomic
+  `INSERT ... ON CONFLICT` upsert** that increments the per-wallet counter and
+  returns the reserved value. The reservation is **permanent**: concurrent
+  requests can never observe the same nonce, and a failed broadcast leaves a
+  gap rather than reusing the nonce. (The earlier design — a `FOR UPDATE`
+  lock with `reserved_at`/`reservation_expires_at` TTLs and a cleanup job
+  that releases expired reservations — was simplified away because the lock
+  could not span the sign+broadcast window and the release path introduced
+  reuse races. There is no release path today.)
+- No `releaseNonce` / `confirmNonce` methods — the nonce is consumed at
+  reservation time and there is nothing to release.
 - `getRpcProvider(chainId)` — returns an RPC provider from a configured list with failover. Tries providers in order, skips failed ones, rotates on errors
 - `broadcastTransaction(signedTxHex, chainId)` — submits via `eth_sendRawTransaction` using the selected RPC provider. Returns `txHash`. Implements retry logic for transient network errors (up to 3 attempts with exponential backoff)
 - `waitForReceipt(txHash, chainId, timeoutMs)` — polls `eth_getTransactionReceipt` every 2 seconds until confirmed or timeout. After timeout, checks `eth_getTransactionByHash` to determine if tx is pending or dropped
@@ -107,20 +116,32 @@ The following tables must exist before Phase 4 begins:
 
 **Background jobs**
 
-- **Nonce reservation cleanup** — runs every 60 seconds, finds expired reservations (`reservation_expires_at < NOW()`), releases them by decrementing nonce, updates `signing_requests.status = 'dropped'`
-- **Pending transaction monitor** — runs every 30 seconds, checks all `signing_requests` with `status = 'broadcasted'` and no receipt. Polls RPC to detect dropped transactions (not in mempool after 10 minutes), marks as `'dropped'`, releases nonce for retry
-- **Stuck transaction detector** — identifies transactions pending > 5 minutes with low gas. Emits alert and suggests speed-up parameters
+- **Not implemented yet:** nonce reservation cleanup (no reservations to
+  clean up — nonces are consumed permanently at reservation time), pending
+  transaction monitor, stuck transaction detector. Broadcast confirmation is
+  handled synchronously in the request path (`waitForReceipt`).
 
 **Updated `POST /wallets/:id/sign` flow**
 
 The sign endpoint now runs the full lifecycle with idempotency and error recovery:
 
-1. **Idempotency check** — compute key from `{ walletId, to, value, data, chainId }`. If a signing request with this key exists and is not `'failed'`, return it immediately
+1. **Idempotency check** — compute key from `{ walletId, chainId, to, value, data }`.
+   If a signing request with this key exists and is not `'failed'`, return it
+   immediately. A **unique index** on `idempotency_key` arbitrates concurrent
+   duplicates; a previously failed row is reset and reused on retry
 2. **Estimate fees** — call `estimateFees` with 20% gas buffer
-3. **Reserve nonce** — call `reserveNonce` atomically. Creates `signing_requests` row with `status = 'pending'`
-4. **Sign transaction** — call Go sidecar with nonce and fee params. On success, update `status = 'signed'`
-5. **Broadcast** — call `broadcastTransaction` with retry logic. On success, set `tx_hash`, update `status = 'broadcasted'`. On permanent failure, set `status = 'failed'`, release nonce, return error. On retryable failure after max retries, set `status = 'failed'`, release nonce
-6. **Wait for receipt** — call `waitForReceipt`. On confirmation, set `block_number`, `gas_used`, `effective_gas_price`, update `status = 'confirmed'`, call `confirmNonce`. On timeout with tx still pending, leave as `'broadcasted'` for background monitor. On timeout with tx dropped, set `status = 'dropped'`, release nonce
+3. **Reserve nonce** — call `reserveNonce` atomically (permanent reservation,
+   see above). Creates the `signing_requests` row with `status = 'pending'`
+4. **Sign transaction** — call Go sidecar with nonce and fee params. On
+   success, update `status = 'signed'`
+5. **Broadcast** — call `broadcastTransaction` with retry logic. On success,
+   set `tx_hash`, update `status = 'broadcasted'`. On failure, set
+   `status = 'failed'` and return a sanitized error — the nonce is **not**
+   released (it was consumed at reservation time; a gap is left)
+6. **Wait for receipt** — call `waitForReceipt`. On confirmation, set
+   `block_number`, `gas_used`, `effective_gas_price`, update
+   `status = 'confirmed'`. On timeout, leave as `'broadcasted'` for the
+   pending monitor
 7. **Return** — `{ txHash, status, receipt? }`
 
 All steps are wrapped in a database transaction where appropriate. Nonce reservation and signing request creation happen atomically.
@@ -134,10 +155,10 @@ All steps are wrapped in a database transaction where appropriate. Nonce reserva
 
 **Error handling strategy**
 
-- **Retryable errors** (RPC timeout, network error): retry up to 3 times with exponential backoff (1s, 2s, 4s). If still failing, mark as `'failed'` with `error_type = 'retryable'`, release nonce
-- **Permanent errors** (insufficient funds, invalid signature, nonce too low): immediately mark as `'failed'` with `error_type = 'permanent'`, release nonce, return descriptive error to client
-- **Unknown errors**: mark as `'failed'` with `error_type = 'unknown'`, release nonce, log for investigation
-- **Timeout during waitForReceipt**: check if tx exists on-chain. If yes, leave as `'broadcasted'` for background monitor. If no, mark as `'dropped'`, release nonce
+- **Retryable errors** (RPC timeout, network error): retry up to 3 times with exponential backoff (1s, 2s, 4s). If still failing, mark as `'failed'` with `error_type = 'retryable'` and return a sanitized error. The nonce is **not** released (it was consumed at reservation time — a gap is left rather than risking reuse)
+- **Permanent errors** (insufficient funds, invalid signature, nonce too low): immediately mark as `'failed'` with `error_type = 'permanent'`, return a sanitized error
+- **Unknown errors**: mark as `'failed'` with `error_type = 'unknown'`, log for investigation
+- **Timeout during waitForReceipt**: check if tx exists on-chain. If yes, leave as `'broadcasted'` for the pending monitor (not implemented yet — see Background jobs above). If no, mark as `'dropped'`
 
 **API response format**
 
@@ -236,7 +257,7 @@ For failures:
 
 **API key management routes**
 
-- `POST /organizations/:id/api-keys` — register a public key with scopes (e.g., `["tx:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org onboarding and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
+- `POST /organizations/:id/api-keys` — register a public key with scopes (e.g., `["wallet:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org onboarding and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
 - `GET /organizations/:id/api-keys` — list active keys
 - `DELETE /organizations/:id/api-keys/:keyId` — revoke a key (requires `key:write` scope)
 
@@ -409,9 +430,13 @@ Smart Account Wallet (Phase 7)
 
 **Rate limiting**
 
-- Per-API-key rate limiting on the stamp verifier guard
-- Configurable limits per key via `api_keys.rate_limit_rpm` (requests per minute)
+- **Implemented:** global rate limiting via `@nestjs/throttler` — 120
+  requests per minute per tracker, where the tracker is the API key (from
+  the stamp) for authenticated requests and the client IP otherwise
 - Returns `429 Too Many Requests` with a `Retry-After` header on breach
+- Not yet implemented: per-key configurable limits via an
+  `api_keys.rate_limit_rpm` column; in-memory storage should be replaced
+  with a shared store (Redis) when running multiple API instances
 
 **Vault key rotation**
 

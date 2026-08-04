@@ -24,7 +24,7 @@ export const api_keys = pgTable(
     key_id: varchar('key_id', { length: 64 }).notNull().unique(),
     scopes: jsonb('scopes')
       .notNull()
-      .default(sql`'["tx:sign"]'::jsonb`),
+      .default(sql`'["*"]'::jsonb`),
     status: varchar('status', { length: 20 }).notNull().default('active'),
     last_used_at: timestamp('last_used_at', { withTimezone: true }),
     expires_at: timestamp('expires_at', { withTimezone: true }),
