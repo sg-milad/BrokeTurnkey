@@ -13,13 +13,6 @@ class TxFieldsDto {
   @IsNumber()
   chainId!: number;
 
-  // The server reserves nonces itself (atomic per-wallet counter) — clients
-  // must not supply one. Kept for schema compatibility with the docs.
-  @ApiProperty({ example: 42, required: false })
-  @IsOptional()
-  @IsNumber()
-  nonce?: number;
-
   @ApiProperty({ example: '0x...' })
   @IsString()
   to!: string;
