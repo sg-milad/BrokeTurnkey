@@ -60,7 +60,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) {}
+  ) { }
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -341,6 +341,7 @@ export class WalletService {
         wallet.derivation_path,
         txFields,
       );
+      this.logger.log(`signResult.rawTx length: ${signResult.rawTx?.length}, value: ${signResult.rawTx?.substring(0, 20)}`);
     } catch (err) {
       const errorType = classifyError(err as Error);
       // Log the full detail server-side; never surface crypto/RPC internals
@@ -371,6 +372,7 @@ export class WalletService {
 
     // 9. Broadcast with retry
     try {
+      this.logger.log(`Broadcast completed for txHash: ${signResult.txHash}`);
       await this.gasService.broadcastTransaction(signResult.rawTx, req.chainId);
 
       await this.signingRequestRepo.update(signingRequest.id, {
@@ -446,11 +448,11 @@ export class WalletService {
       signature: signResult.signature,
       receipt: receipt
         ? {
-            blockNumber: receipt.blockNumber,
-            status: receipt.status,
-            gasUsed: receipt.gasUsed,
-            effectiveGasPrice: receipt.effectiveGasPrice,
-          }
+          blockNumber: receipt.blockNumber,
+          status: receipt.status,
+          gasUsed: receipt.gasUsed,
+          effectiveGasPrice: receipt.effectiveGasPrice,
+        }
         : null,
       status: finalStatus,
       signingRequestId: signingRequest.id,
@@ -470,11 +472,11 @@ export class WalletService {
       signature: request.signature || '',
       receipt: request.block_number
         ? {
-            blockNumber: request.block_number,
-            status: request.status === 'confirmed' ? 1 : 0,
-            gasUsed: request.gas_used,
-            effectiveGasPrice: request.effective_gas_price,
-          }
+          blockNumber: request.block_number,
+          status: request.status === 'confirmed' ? 1 : 0,
+          gasUsed: request.gas_used,
+          effectiveGasPrice: request.effective_gas_price,
+        }
         : null,
       status:
         request.status === 'timeout'

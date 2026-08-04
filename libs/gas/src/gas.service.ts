@@ -13,7 +13,7 @@ export class GasService {
     private readonly chainService: ChainService,
     @Inject(WALLET_NONCE_REPOSITORY)
     private readonly walletNonceRepo: IWalletNonceRepository,
-  ) {}
+  ) { }
 
   // -------------------------------------------------------------------------
   // Fee estimation — EIP-1559 only
@@ -111,11 +111,11 @@ export class GasService {
     rawTxHex: string,
     chainId: number,
   ): Promise<string> {
-    return this.rpcCallWithRetry<string>(
-      'eth_sendRawTransaction',
-      [rawTxHex],
-      chainId,
-    );
+
+    this.logger.log(`Broadcasting to chainId ${chainId}, rawTx length: ${rawTxHex?.length}`);
+    const result = await this.rpcCallWithRetry<string>('eth_sendRawTransaction', [rawTxHex], chainId);
+    this.logger.log(`Broadcast result: ${result}`);
+    return result;
   }
 
   async waitForReceipt(
