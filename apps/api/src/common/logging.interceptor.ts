@@ -73,9 +73,14 @@ export class LoggingInterceptor implements NestInterceptor {
 
     for (const key of Object.keys(sanitized)) {
       const lowerKey = key.toLowerCase();
-      if (sensitiveFields.some((field) => lowerKey.includes(field.toLowerCase()))) {
+      if (
+        sensitiveFields.some((field) => lowerKey.includes(field.toLowerCase()))
+      ) {
         sanitized[key] = '[REDACTED]';
-      } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+      } else if (
+        typeof sanitized[key] === 'object' &&
+        sanitized[key] !== null
+      ) {
         sanitized[key] = this.sanitizeBody(sanitized[key]);
       }
     }

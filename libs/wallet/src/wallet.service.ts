@@ -306,9 +306,8 @@ export class WalletService {
       const pgErr = err as { code?: string } | undefined;
       if (pgErr?.code !== '23505') throw err; // not a uniqueness conflict
 
-      const raced = await this.signingRequestRepo.findByIdempotencyKey(
-        idempotencyKey,
-      );
+      const raced =
+        await this.signingRequestRepo.findByIdempotencyKey(idempotencyKey);
       if (raced && raced.status !== 'failed') {
         this.logger.log(
           `Concurrent duplicate detected; returning existing signing request ${raced.id}`,

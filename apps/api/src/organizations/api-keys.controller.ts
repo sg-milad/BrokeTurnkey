@@ -33,7 +33,7 @@ import { CreateApiKeyDto } from './dto/create-api-key.dto';
 })
 @Controller('organizations/:id/api-keys')
 export class ApiKeysController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Post()
   @UseGuards(OptionalStampVerifierGuard)
