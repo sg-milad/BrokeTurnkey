@@ -411,7 +411,11 @@ export class WalletService {
     let errorMessage: string | undefined;
 
     if (!timedOut && receipt) {
-      finalStatus = receipt.status === 1 ? 'confirmed' : 'failed';
+      const statusNum = typeof receipt.status === 'string'
+        ? parseInt(receipt.status, 16)
+        : receipt.status;
+
+      finalStatus = statusNum === 1 ? 'confirmed' : 'failed';
 
       await this.signingRequestRepo.update(signingRequest.id, {
         status: finalStatus,
