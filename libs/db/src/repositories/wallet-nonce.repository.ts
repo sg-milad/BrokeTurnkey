@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE_CLIENT } from '../constants';
 import type { DrizzleClient } from '../db';
+import { IWalletNonceRepository } from './interfaces/wallet-nonce.repository.interface';
 
 /**
  * Atomically reserves and consumes the next nonce for the wallet+chain pair.
@@ -16,8 +17,8 @@ import type { DrizzleClient } from '../db';
  * Returns the reserved nonce (the pre-increment value).
  */
 @Injectable()
-export class WalletNonceRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
+export class WalletNonceRepository implements IWalletNonceRepository {
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }
 
   async reserve(walletId: string, chainId: number): Promise<number> {
     const result = await this.db.execute(
@@ -33,5 +34,15 @@ export class WalletNonceRepository {
       throw new Error('nonce reservation returned no row');
     }
     return Number(row.reserved);
+  }
+
+  async syncFromChain(walletId: string, chainId: number, chainNonce: number): Promise<void> {
+    await this.db.execute(
+      sql`INSERT INTO wallet_nonces (wallet_id, chain_id, nonce)
+        VALUES (${walletId}, ${chainId}, ${chainNonce})
+        ON CONFLICT (wallet_id, chain_id)
+        DO UPDATE SET nonce = ${chainNonce}, updated_at = now()
+        WHERE wallet_nonces.nonce < ${chainNonce}`,
+    );
   }
 }

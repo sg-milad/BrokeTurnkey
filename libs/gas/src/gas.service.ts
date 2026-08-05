@@ -163,6 +163,18 @@ export class GasService {
     return { receipt: null, timedOut: true };
   }
 
+  async syncNonce(walletId: string, chainId: number, walletAddress: string): Promise<number> {
+    const result = await this.rpcCallWithRetry<string>(
+      'eth_getTransactionCount',
+      [walletAddress, 'pending'],
+      chainId,
+    );
+    const chainNonce = parseInt(result, 16);
+    await this.walletNonceRepo.syncFromChain(walletId, chainId, chainNonce);
+    this.logger.log(`Synced nonce for wallet ${walletId} on chain ${chainId}: ${chainNonce}`);
+    return chainNonce;
+  }
+
   // -------------------------------------------------------------------------
   // RPC helpers with retry and failover
   // -------------------------------------------------------------------------

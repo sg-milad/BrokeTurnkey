@@ -389,6 +389,12 @@ export class WalletService {
         failure_reason: `broadcast failed: ${(err as Error).message}`,
         error_type: errorType,
       });
+
+      // Sync nonce — the reserved nonce was never used on-chain
+      this.gasService.syncNonce(walletId, req.chainId, wallet.address).catch((err) =>
+        this.logger.warn(`Nonce sync after broadcast failure: ${(err as Error).message}`),
+      );
+
       throw new HttpException(
         `Transaction broadcast failed (${errorType})`,
         errorType === 'permanent'
@@ -412,24 +418,34 @@ export class WalletService {
 
     if (!timedOut && receipt) {
       const statusNum = typeof receipt.status === 'string'
-        ? parseInt(receipt.status, 16)
+        ? parseInt(receipt.status as string, 16)
         : receipt.status;
 
       finalStatus = statusNum === 1 ? 'confirmed' : 'failed';
 
       await this.signingRequestRepo.update(signingRequest.id, {
         status: finalStatus,
-        block_number: receipt.blockNumber,
+        block_number: typeof receipt.blockNumber === 'string'
+          ? parseInt(receipt.blockNumber as string, 16)
+          : receipt.blockNumber,
         gas_used: receipt.gasUsed || null,
         effective_gas_price: receipt.effectiveGasPrice || null,
         confirmed_at: finalStatus === 'confirmed' ? new Date() : undefined,
       });
     } else if (timedOut) {
       errorMessage = 'receipt polling timed out';
+
       await this.signingRequestRepo.update(signingRequest.id, {
         status: 'timeout',
         failure_reason: errorMessage,
       });
+
+      // Sync nonce from chain so the next request doesn't reuse a stale counter.
+      // Fire-and-forget — a sync failure is not fatal; it will self-correct on
+      // the next successful tx or manual sync.
+      this.gasService.syncNonce(walletId, req.chainId, wallet.address).catch((err) =>
+        this.logger.warn(`Nonce sync after timeout failed: ${(err as Error).message}`),
+      );
     }
 
     // 12. Audit log
