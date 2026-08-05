@@ -6,14 +6,13 @@ import {
   Param,
   Query,
   HttpCode,
-  UseGuards,
 } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { type organization } from '@app/db/schema/organizations';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
-import { StampVerifierGuard } from '@app/auth';
+import { Public } from '@app/auth';
 import { AuditLogRepository } from '@app/db/repositories';
 
 @ApiTags('organizations')
@@ -25,6 +24,7 @@ export class OrganizationsController {
   ) {}
 
   @Post()
+  @Public()
   @ApiOperation({ summary: 'Create an organization' })
   @ApiResponse({
     status: 201,
@@ -78,6 +78,7 @@ export class OrganizationsController {
   }
 
   @Post(':id/onboard')
+  @Public()
   @HttpCode(200)
   @ApiOperation({
     summary: 'Onboard an organization (create seed + first wallet)',
@@ -94,7 +95,6 @@ export class OrganizationsController {
   }
 
   @Get(':id/audit-log')
-  @UseGuards(StampVerifierGuard)
   @HttpCode(200)
   @ApiOperation({ summary: 'Query audit log for organization' })
   @ApiResponse({ status: 200, description: 'Audit log entries returned.' })

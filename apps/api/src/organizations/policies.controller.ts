@@ -5,12 +5,10 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PolicyService } from '@app/policy';
-import { StampVerifierGuard } from '@app/auth';
 import { Scopes } from '@app/auth';
 
 @ApiTags('policies')
@@ -19,7 +17,6 @@ export class PoliciesController {
   constructor(private readonly policyService: PolicyService) {}
 
   @Post()
-  @UseGuards(StampVerifierGuard)
   @Scopes('policy:write')
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a policy' })
@@ -50,7 +47,6 @@ export class PoliciesController {
   }
 
   @Get()
-  @UseGuards(StampVerifierGuard)
   @HttpCode(200)
   @ApiOperation({ summary: 'List policies for organization' })
   @ApiResponse({ status: 200, description: 'Policies returned.' })
@@ -59,7 +55,6 @@ export class PoliciesController {
   }
 
   @Delete(':policyId')
-  @UseGuards(StampVerifierGuard)
   @Scopes('policy:write')
   @HttpCode(200)
   @ApiOperation({ summary: 'Delete a policy' })

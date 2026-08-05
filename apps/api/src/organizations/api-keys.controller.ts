@@ -18,9 +18,7 @@ import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
-import { AuthService } from '@app/auth';
-import { StampVerifierGuard, OptionalStampVerifierGuard } from '@app/auth';
-import { Scopes } from '@app/auth';
+import { AuthService, Public, Scopes, OptionalStampVerifierGuard } from '@app/auth';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 @ApiTags('api-keys')
@@ -36,6 +34,7 @@ export class ApiKeysController {
   constructor(private readonly authService: AuthService) {}
 
   @Post()
+  @Public()
   @UseGuards(OptionalStampVerifierGuard)
   @HttpCode(201)
   @ApiOperation({
@@ -79,7 +78,6 @@ export class ApiKeysController {
   }
 
   @Get()
-  @UseGuards(StampVerifierGuard)
   @HttpCode(200)
   @ApiOperation({ summary: 'List API keys for organization' })
   @ApiParam({
@@ -97,7 +95,6 @@ export class ApiKeysController {
   }
 
   @Delete(':keyId')
-  @UseGuards(StampVerifierGuard)
   @Scopes('key:write')
   @HttpCode(200)
   @ApiOperation({

@@ -4,8 +4,10 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { ApiKeyRepository } from '@app/db/repositories';
 import { createHash, verify } from 'crypto';
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 // Request body this size or larger is rejected by the body parser before the
 // guard runs (express.json `limit` option). Keeping it in sync with main.ts.
@@ -13,9 +15,19 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 
 @Injectable()
 export class StampVerifierGuard implements CanActivate {
-  constructor(private readonly apiKeyRepo: ApiKeyRepository) {}
+  constructor(
+    private readonly apiKeyRepo: ApiKeyRepository,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Check if route is marked as public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest<Record<string, any>>();
     const headers = request.headers as Record<string, string>;
     const stamp = headers['x-stamp'];
@@ -135,9 +147,19 @@ export class StampVerifierGuard implements CanActivate {
  */
 @Injectable()
 export class OptionalStampVerifierGuard implements CanActivate {
-  constructor(private readonly apiKeyRepo: ApiKeyRepository) {}
+  constructor(
+    private readonly apiKeyRepo: ApiKeyRepository,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Check if route is marked as public (same logic as StampVerifierGuard)
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest<Record<string, any>>();
     const headers = request.headers as Record<string, string>;
     const stamp = headers['x-stamp'];
@@ -148,8 +170,8 @@ export class OptionalStampVerifierGuard implements CanActivate {
     }
 
     // Delegate to the real guard logic by re-using StampVerifierGuard's
-    // verification. We instantiate it with the same repo.
-    const strict = new StampVerifierGuard(this.apiKeyRepo);
+    // verification. We instantiate it with the same repo and reflector.
+    const strict = new StampVerifierGuard(this.apiKeyRepo, this.reflector);
     return strict.canActivate(context);
   }
 }

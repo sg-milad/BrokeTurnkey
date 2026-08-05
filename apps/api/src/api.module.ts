@@ -9,7 +9,11 @@ import { appConfig } from './config/app.config';
 import { WalletModule } from '@app/wallet';
 import { WalletsModule } from './wallets/wallets.module';
 import { OrganizationsModule } from './organizations/organizations.module';
-import { ApiKeyThrottlerGuard, ScopesGuard } from '@app/auth';
+import {
+  ApiKeyThrottlerGuard,
+  ScopesGuard,
+  StampVerifierGuard,
+} from '@app/auth';
 
 @Module({
   imports: [
@@ -31,9 +35,9 @@ import { ApiKeyThrottlerGuard, ScopesGuard } from '@app/auth';
   providers: [
     ApiService,
     // Global guards run in registration order. Rate limiting first (so floods
-    // are rejected cheaply), then scope enforcement on top of the per-route
-    // StampVerifierGuard which runs after these.
+    // are rejected cheaply), then stamp verification, then scope enforcement.
     { provide: APP_GUARD, useClass: ApiKeyThrottlerGuard },
+    { provide: APP_GUARD, useClass: StampVerifierGuard },
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
 })

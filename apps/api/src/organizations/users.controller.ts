@@ -5,12 +5,10 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UserService } from '@app/users';
-import { StampVerifierGuard } from '@app/auth';
 import { Scopes } from '@app/auth';
 
 @ApiTags('users')
@@ -19,7 +17,6 @@ export class UsersController {
   constructor(private readonly userService: UserService) {}
 
   @Post()
-  @UseGuards(StampVerifierGuard)
   @Scopes('key:write')
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a user' })
@@ -32,7 +29,6 @@ export class UsersController {
   }
 
   @Get()
-  @UseGuards(StampVerifierGuard)
   @HttpCode(200)
   @ApiOperation({ summary: 'List users for organization' })
   @ApiResponse({ status: 200, description: 'Users returned.' })
@@ -41,7 +37,6 @@ export class UsersController {
   }
 
   @Get(':userId')
-  @UseGuards(StampVerifierGuard)
   @HttpCode(200)
   @ApiOperation({ summary: 'Get a user by ID' })
   @ApiResponse({ status: 200, description: 'User returned.' })
@@ -50,7 +45,6 @@ export class UsersController {
   }
 
   @Delete(':userId')
-  @UseGuards(StampVerifierGuard)
   @Scopes('key:write')
   @HttpCode(200)
   @ApiOperation({ summary: 'Delete a user' })
