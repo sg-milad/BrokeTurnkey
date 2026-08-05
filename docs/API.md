@@ -5,6 +5,7 @@ authentication, resource lifecycles, error handling, validation, versioning, and
 future-compatibility guarantees.
 
 For a complete endpoint listing, see the controller source files:
+
 - `apps/api/src/organizations/organizations.controller.ts`
 - `apps/api/src/wallets/wallets.controller.ts`
 
@@ -25,6 +26,7 @@ in the database alongside an API key identifier.
 #### Request format
 
 Clients sign each request by constructing a canonical payload that includes:
+
 1. The request body (raw bytes as sent — hashed with SHA-256)
 2. A Unix timestamp in milliseconds
 3. The API key identifier
@@ -64,11 +66,11 @@ Every API key carries a `scopes` array. A `*` scope grants everything; a
 narrowed key can only perform the listed actions. Scope checks are enforced
 by a global `ScopesGuard`:
 
-| Action                                  | Required scope |
-| --------------------------------------- | -------------- |
-| Register / revoke API keys              | `key:write`    |
-| Create / delete users                   | `key:write`    |
-| Create / delete policies                | `policy:write` |
+| Action                     | Required scope |
+| -------------------------- | -------------- |
+| Register / revoke API keys | `key:write`    |
+| Create / delete users      | `key:write`    |
+| Create / delete policies   | `policy:write` |
 
 A key without the required scope gets `403 {"statusCode":403,"message":"insufficient_scope","error":"Forbidden"}`.
 
@@ -163,6 +165,7 @@ Ethereum address.
 ### Creation (Derivation)
 
 Wallets are created via `POST /wallets`. The caller provides:
+
 - `orgId`: The organization ID
 - `derivationIndex`: The BIP32 derivation index (integer)
 - `userId` (optional): If provided, the wallet is assigned to a specific user;
@@ -203,6 +206,7 @@ into a signed transaction ready for broadcast to the Ethereum network.
 ### Request Creation
 
 A signing request is initiated via `POST /wallets/:id/sign`. The caller provides:
+
 - Transaction fields: `to`, `value`, `data`, `nonce`, `gasLimit`, `maxFeePerGas`,
   `maxPriorityFeePerGas`
 - Optional policy context for evaluation
@@ -212,6 +216,7 @@ The signing lifecycle proceeds through these phases:
 #### Phase 1: Policy Evaluation
 
 The `PolicyEngine` (`@app/policy`) evaluates the request against configured rules:
+
 - Spend limits (per-transaction and rolling window)
 - Address allowlists and blocklists
 - Time locks (e.g., business-hours-only restrictions)
@@ -222,6 +227,7 @@ error. No cryptographic operations are performed.
 #### Phase 2: Fee Estimation & Nonce Management
 
 The `GasService` (`@app/gas`) handles transaction assembly:
+
 - Estimates gas via `eth_estimateGas` on the configured RPC provider
 - **Reserves the nonce atomically**: a single `INSERT ... ON CONFLICT`
   upsert increments the per-wallet counter and returns the reserved value.
@@ -234,6 +240,7 @@ The `GasService` (`@app/gas`) handles transaction assembly:
 #### Phase 3: Cryptographic Signing
 
 The transaction fields are sent to the Go crypto service:
+
 1. The org's encrypted seed is retrieved from PostgreSQL
 2. The Go service decrypts the DEK via Vault, then decrypts the seed
 3. The child key is derived at the wallet's index
@@ -246,6 +253,7 @@ The transaction fields are sent to the Go crypto service:
 
 The signed transaction is broadcast via `eth_sendRawTransaction` to the RPC
 provider. The system waits for the transaction receipt and records:
+
 - Transaction hash
 - Block number
 - Gas used
@@ -274,14 +282,14 @@ previously failed request is reused (reset to pending) on retry.
 The API uses standard HTTP status codes with structured JSON error bodies
 (NestJS default shape: `{ statusCode, message, error }`):
 
-| Status Code | Meaning                                       | Example Causes                              |
-| ----------- | --------------------------------------------- | ------------------------------------------- |
-| 400         | Bad Request / validation failure              | Invalid input, org not onboarded, permanent signing failure |
-| 401         | Unauthorized                                  | Missing/invalid/expired stamp, revoked key  |
-| 403         | Forbidden                                     | Policy denial, insufficient API key scope   |
-| 404         | Not Found                                     | Wallet or org does not exist                |
-| 429         | Too Many Requests                             | Rate limit exceeded (per API key or IP)     |
-| 500         | Internal Server Error                         | Go service unreachable, Vault down, transient signing failure |
+| Status Code | Meaning                          | Example Causes                                                |
+| ----------- | -------------------------------- | ------------------------------------------------------------- |
+| 400         | Bad Request / validation failure | Invalid input, org not onboarded, permanent signing failure   |
+| 401         | Unauthorized                     | Missing/invalid/expired stamp, revoked key                    |
+| 403         | Forbidden                        | Policy denial, insufficient API key scope                     |
+| 404         | Not Found                        | Wallet or org does not exist                                  |
+| 429         | Too Many Requests                | Rate limit exceeded (per API key or IP)                       |
+| 500         | Internal Server Error            | Go service unreachable, Vault down, transient signing failure |
 
 ### Error Response Format
 
@@ -310,18 +318,18 @@ Validation failures return an array of messages:
 
 The guard returns the reason directly in `message`:
 
-| `message`                        | Cause                                            |
-| -------------------------------- | ------------------------------------------------ |
-| `Missing X-Stamp header`         | `X-Stamp` header absent                          |
-| `Invalid stamp format`           | Header does not parse into three dot-separated parts |
-| `Invalid timestamp in stamp`     | Timestamp is not an integer                      |
+| `message`                               | Cause                                                |
+| --------------------------------------- | ---------------------------------------------------- |
+| `Missing X-Stamp header`                | `X-Stamp` header absent                              |
+| `Invalid stamp format`                  | Header does not parse into three dot-separated parts |
+| `Invalid timestamp in stamp`            | Timestamp is not an integer                          |
 | `Stamp timestamp is out of valid range` | Older than 5 minutes or more than 30 s in the future |
-| `API key not found`              | `key_id` not in `api_keys` table                 |
-| `API key is not active`          | `status = revoked`                               |
-| `API key has expired`            | `expires_at` is in the past                      |
-| `Invalid signature encoding`     | Signature is not valid base64url                 |
-| `Invalid signature length`       | Decoded signature outside 68–75 bytes (DER P-256) |
-| `Invalid signature`              | Signature verification failed or key malformed   |
+| `API key not found`                     | `key_id` not in `api_keys` table                     |
+| `API key is not active`                 | `status = revoked`                                   |
+| `API key has expired`                   | `expires_at` is in the past                          |
+| `Invalid signature encoding`            | Signature is not valid base64url                     |
+| `Invalid signature length`              | Decoded signature outside 68–75 bytes (DER P-256)    |
+| `Invalid signature`                     | Signature verification failed or key malformed       |
 
 ### Common Error Scenarios
 
@@ -425,6 +433,7 @@ continue to work.
 ### Deprecation Policy
 
 Deprecated features follow this timeline:
+
 1. **Announcement**: Documentation updated, deprecation warning added to logs
 2. **Grace period**: 6 months minimum for clients to migrate
 3. **Removal**: Feature removed in next major version
@@ -493,18 +502,17 @@ The stamp is a DER-encoded P-256 signature over
 register the public key, then sign every request:
 
 ```js
-const {
-  generateKeyPairSync,
-  createHash,
-  sign,
-} = require('node:crypto');
+const { generateKeyPairSync, createHash, sign } = require('node:crypto');
 
 // 1. Generate the P-256 keypair ONCE (client side). The private key never
 //    leaves your machine — only the public key is registered with the API.
 const { publicKey, privateKey } = generateKeyPairSync('ec', {
   namedCurve: 'prime256v1',
 });
-console.log('Register this public key:', publicKey.export({ type: 'spki', format: 'pem' }));
+console.log(
+  'Register this public key:',
+  publicKey.export({ type: 'spki', format: 'pem' }),
+);
 
 // 2. Sign a request. body must be the EXACT raw bytes you send.
 function makeStamp(bodyBytes, keyId) {
@@ -534,43 +542,89 @@ function makeStamp(bodyBytes, keyId) {
 
 ### Worked walkthrough (curl)
 
+The full flow from zero to a signed transaction. Steps 1–3 are one-time setup
+per organization; steps 4–6 are the recurring operational flow.
+
+#### Step 1 — Create an organization
+
 ```bash
 API=http://localhost:3000
 
-# 1. Create an organization
 curl -s -X POST $API/organizations \
   -H 'Content-Type: application/json' \
   -d '{"name": "Acme Corp", "slug": "acme"}'
-# → { id: "<org-id>", slug: "acme", name: "Acme Corp", ... }
+# → { "id": "<org-id>", "slug": "acme", "name": "Acme Corp", ... }
+```
 
-# 2. Onboard it — creates the org seed + first wallet, and returns the
-#    one-time bootstrap token used to register your first API key
-curl -s -X POST $API/organizations/<org-id>/onboard \
-  -H 'Content-Type: application/json' -d '{}'
-# → { orgId: "<org-id>", firstAddress: "0x...", bootstrapToken: "<token>" }
+Save the returned `id` as `ORG_ID`.
 
-# 3. Register your first API key with the bootstrap token
-curl -s -X POST $API/organizations/<org-id>/api-keys \
+#### Step 2 — Onboard the organization
+
+Generates the BIP39 seed, encrypts it, stores the ciphertext, derives the
+first wallet address, and returns the one-time bootstrap token needed to
+register your first API key.
+
+```bash
+curl -s -X POST $API/organizations/$ORG_ID/onboard \
   -H 'Content-Type: application/json' \
-  -H 'X-Bootstrap-Token: <token>' \
-  -d '{"name": "prod", "publicKey": "<P-256 public key PEM>", "scopes": ["*"]}'
-# → 201 { id, keyId, name, publicKey, scopes, createdAt }
+  -d '{}'
+# → { "orgId": "<org-id>", "firstAddress": "0x...", "bootstrapToken": "<token>" }
+```
 
-# ⚠ Known issue: the api-keys route currently always 400s with
-#   "Either bootstrap token or valid API key required" — the controller has
-#   not been wired to read the X-Bootstrap-Token header or the stamp context
-#   yet. Key registration is expected to be fixed before the auth guard is
-#   enabled globally (see docs/STAMP_AUTH.md bootstrap section).
+Save `bootstrapToken` — it is shown exactly once and cleared after first use.
 
-# 4. Derive a wallet (requires a valid stamp — replace X-Stamp with a
-#    freshly constructed value, see the Node snippet above)
+#### Step 3 — Generate a P-256 key pair and register your first API key
+
+Generate the key pair locally. The private key never leaves your machine.
+
+```bash
+# Generate private key
+openssl ecparam -name prime256v1 -genkey -noout -out private.pem
+
+# Extract public key
+openssl ec -in private.pem -pubout -out public.pem
+```
+
+The public key must be sent as a JSON string with `\n` for newlines. Print it
+in the right format:
+
+```bash
+awk '{printf "%s\\n", $0}' public.pem
+# → -----BEGIN PUBLIC KEY-----\nMFkwEwYH...\n-----END PUBLIC KEY-----\n
+```
+
+Register the key using the bootstrap token:
+
+```bash
+curl -s -X POST $API/organizations/$ORG_ID/api-keys \
+  -H 'Content-Type: application/json' \
+  -H 'X-Bootstrap-Token: <bootstrapToken>' \
+  -d '{
+    "name": "prod",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYH...\n-----END PUBLIC KEY-----\n",
+    "scopes": ["*"]
+  }'
+# → { "id": "...", "keyId": "<key-id>", "name": "prod", "scopes": ["*"], "createdAt": "..." }
+```
+
+Save the returned `keyId` — you include it in every `X-Stamp` header.
+
+#### Step 4 — Derive a wallet
+
+All subsequent requests require a valid stamp. Use the Node.js `makeStamp`
+helper above (or your own equivalent) to produce `X-Stamp`.
+
+```bash
 curl -s -X POST $API/wallets \
   -H 'Content-Type: application/json' \
   -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>' \
   -d '{"orgId": "<org-id>", "label": "Treasury"}'
-# → { walletId: "<wallet-id>", address: "0x..." }
+# → { "walletId": "<wallet-id>", "address": "0x..." }
+```
 
-# 5. Sign + broadcast a transaction (stamp required)
+#### Step 5 — Sign and broadcast a transaction
+
+```bash
 curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
   -H 'Content-Type: application/json' \
   -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>' \
@@ -583,11 +637,14 @@ curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
       "data": "0x"
     }
   }'
-# → { txHash, signature, receipt, status, signingRequestId }
-#   (gasLimit/maxFeePerGas/maxPriorityFeePerGas are estimated when omitted;
-#    the nonce is always assigned by the server)
+# → { "txHash": "0x...", "signature": "0x...", "status": "confirmed", "signingRequestId": "..." }
+# gasLimit/maxFeePerGas/maxPriorityFeePerGas are estimated server-side when omitted.
+# The nonce is always assigned by the server — do not supply one.
+```
 
-# 6. Inspect what was signed
+#### Step 6 — Inspect signing history
+
+```bash
 curl -s $API/organizations/<org-id>/signing-requests \
   -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>'
 ```
