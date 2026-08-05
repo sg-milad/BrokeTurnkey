@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // maxBodyBytes caps request bodies — the API is the only caller and its
@@ -276,9 +277,11 @@ func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	finalTxHash := crypto.Keccak256(rawTxBytes)
+
 	writeJSON(w, http.StatusOK, SignTxResponse{
 		Signature: signature,
-		TxHash:    "0x" + hex.EncodeToString(txHash),
+		TxHash:    "0x" + hex.EncodeToString(finalTxHash),
 		RawTx:     "0x" + hex.EncodeToString(rawTxBytes),
 	})
 }
