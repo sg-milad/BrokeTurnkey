@@ -15,6 +15,9 @@ interface SigningRequestUpdate {
   signed_at?: Date;
   broadcasted_at?: Date;
   confirmed_at?: Date;
+  speed_up_attempts?: number;
+  original_tx_hash?: string | null;
+  last_speed_up_at?: Date | null;
 }
 
 export interface ISigningRequestRepository {
@@ -24,4 +27,5 @@ export interface ISigningRequestRepository {
   findByWalletId(walletId: string): Promise<SigningRequest[]>;
   create(data: NewSigningRequest): Promise<SigningRequest>;
   update(id: string, fields: SigningRequestUpdate): Promise<void>;
+  findBroadcasted(): Promise<SigningRequest[]>;
 }

@@ -9,6 +9,7 @@ import { appConfig } from './config/app.config';
 import { WalletModule } from '@app/wallet';
 import { WalletsModule } from './wallets/wallets.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { MonitorModule } from '@app/monitor';
 import {
   ApiKeyThrottlerGuard,
   ScopesGuard,
@@ -30,6 +31,7 @@ import {
     WalletModule,
     OrganizationsModule,
     WalletsModule,
+    MonitorModule,
   ],
   controllers: [ApiController],
   providers: [
@@ -41,4 +43,4 @@ import {
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
 })
-export class ApiModule {}
+export class ApiModule { }

@@ -35,7 +35,9 @@
       "@app/wallet": ["libs/wallet/src"],
       "@app/wallet/*": ["libs/wallet/src/*"],
       "@app/users": ["libs/users/src"],
-      "@app/users/*": ["libs/users/src/*"]
+      "@app/users/*": ["libs/users/src/*"],
+      "@app/monitor": ["libs/monitor/src"],
+      "@app/monitor/*": ["libs/monitor/src/*"]
     }
   }
 }

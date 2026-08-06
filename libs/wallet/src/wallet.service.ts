@@ -33,16 +33,11 @@ export interface SignRequest {
 }
 
 export interface SignResult {
-  txHash: string;
-  signature: string;
-  receipt: {
-    blockNumber: number;
-    status: number;
-    gasUsed?: string;
-    effectiveGasPrice?: string;
-  } | null;
-  status: 'confirmed' | 'timeout' | 'failed';
   signingRequestId: string;
+  txHash: string;
+  status: string;
+  nonce: number;
+  idempotencyKey: string;
   errorType?: ErrorType;
   errorMessage?: string;
 }
@@ -403,82 +398,59 @@ export class WalletService {
       );
     }
 
-    // 10. Poll for receipt. (The nonce was consumed at reservation time —
-    // there is no post-broadcast increment step.)
-    const { receipt, timedOut } = await this.gasService.waitForReceipt(
-      signResult.txHash,
-      req.chainId,
-      60_000,
-    );
-
-    // 11. Final status and update
-    let finalStatus: 'confirmed' | 'timeout' | 'failed' = 'timeout';
-    let errorType: ErrorType | undefined;
-    let errorMessage: string | undefined;
-
-    if (!timedOut && receipt) {
-      const statusNum = typeof receipt.status === 'string'
-        ? parseInt(receipt.status as string, 16)
-        : receipt.status;
-
-      finalStatus = statusNum === 1 ? 'confirmed' : 'failed';
-
-      await this.signingRequestRepo.update(signingRequest.id, {
-        status: finalStatus,
-        block_number: typeof receipt.blockNumber === 'string'
-          ? parseInt(receipt.blockNumber as string, 16)
-          : receipt.blockNumber,
-        gas_used: receipt.gasUsed || null,
-        effective_gas_price: receipt.effectiveGasPrice || null,
-        confirmed_at: finalStatus === 'confirmed' ? new Date() : undefined,
-      });
-    } else if (timedOut) {
-      errorMessage = 'receipt polling timed out';
-
-      await this.signingRequestRepo.update(signingRequest.id, {
-        status: 'timeout',
-        failure_reason: errorMessage,
-      });
-
-      // Sync nonce from chain so the next request doesn't reuse a stale counter.
-      // Fire-and-forget — a sync failure is not fatal; it will self-correct on
-      // the next successful tx or manual sync.
-      this.gasService.syncNonce(walletId, req.chainId, wallet.address).catch((err) =>
-        this.logger.warn(`Nonce sync after timeout failed: ${(err as Error).message}`),
-      );
-    }
-
-    // 12. Audit log
+    // 10. Fire-and-forget: TransactionMonitorService (@app/monitor) owns
+    // everything after broadcast — confirmation, stuck detection, speed-up,
+    // and drop detection. See docs/TASKS.md Phase 9.
     await this.auditLogRepo.create({
       org_id: orgId,
       wallet_id: walletId,
       event: 'tx_signed',
-      status: finalStatus === 'confirmed' ? 'success' : finalStatus,
+      status: 'broadcasted',
       metadata: {
         txHash: signResult.txHash,
         signingRequestId: signingRequest.id,
         chainId: req.chainId,
-        finalStatus,
-        errorType,
       },
     });
 
+    // 11. Return immediately — do not block on waitForReceipt.
     return {
-      txHash: signResult.txHash,
-      signature: signResult.signature,
-      receipt: receipt
-        ? {
-          blockNumber: receipt.blockNumber,
-          status: receipt.status,
-          gasUsed: receipt.gasUsed,
-          effectiveGasPrice: receipt.effectiveGasPrice,
-        }
-        : null,
-      status: finalStatus,
       signingRequestId: signingRequest.id,
-      errorType,
-      errorMessage,
+      txHash: signResult.txHash,
+      status: 'broadcasted',
+      nonce,
+      idempotencyKey,
     };
+  }
+
+  /**
+   * Returns the current status of a single signing request. Used by clients
+   * to poll after receiving `broadcasted` from POST /wallets/:id/sign.
+   */
+  async getSigningRequestById(
+    orgId: string,
+    walletId: string,
+    requestId: string,
+  ) {
+    const wallet = await this.walletRepo.findById(walletId);
+    if (!wallet)
+      throw new NotFoundException(
+        `Wallet with id "${walletId}" does not exist`,
+      );
+    if (wallet.org_id !== orgId)
+      throw new BadRequestException('Wallet does not belong to this org');
+
+    const request = await this.signingRequestRepo.findById(requestId);
+    if (!request)
+      throw new NotFoundException(
+        `Signing request with id "${requestId}" does not exist`,
+      );
+    if (request.wallet_id !== walletId)
+      throw new BadRequestException(
+        'Signing request does not belong to this wallet',
+      );
+
+    return this.mapSigningRequest(request);
   }
 
   private computeIdempotencyKey(walletId: string, req: SignRequest): string {
@@ -488,23 +460,11 @@ export class WalletService {
 
   private buildSignResultFromRequest(request: any): SignResult {
     return {
-      txHash: request.tx_hash || '',
-      signature: request.signature || '',
-      receipt: request.block_number
-        ? {
-          blockNumber: request.block_number,
-          status: request.status === 'confirmed' ? 1 : 0,
-          gasUsed: request.gas_used,
-          effectiveGasPrice: request.effective_gas_price,
-        }
-        : null,
-      status:
-        request.status === 'timeout'
-          ? 'timeout'
-          : request.status === 'confirmed'
-            ? 'confirmed'
-            : 'failed',
       signingRequestId: request.id,
+      txHash: request.tx_hash || '',
+      status: request.status,
+      nonce: request.tx_payload?.nonce ?? 0,
+      idempotencyKey: request.idempotency_key,
       errorType: request.error_type as ErrorType | undefined,
       errorMessage: request.failure_reason || undefined,
     };

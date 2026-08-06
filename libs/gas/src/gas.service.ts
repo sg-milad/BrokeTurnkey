@@ -163,6 +163,48 @@ export class GasService {
     return { receipt: null, timedOut: true };
   }
 
+  // -------------------------------------------------------------------------
+  // Single-shot RPC queries (used by TransactionMonitorService)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetches a transaction receipt by hash. Returns null if the tx has not
+   * been mined yet (no receipt = not confirmed).
+   */
+  async getTransactionReceipt(
+    txHash: string,
+    chainId: number,
+  ): Promise<TransactionReceipt | null> {
+    const raw = await this.rpcCallWithRetry<Record<string, unknown> | null>(
+      'eth_getTransactionReceipt',
+      [txHash],
+      chainId,
+    );
+    if (!raw) return null;
+
+    // JSON-RPC returns status as hex string '0x1' or '0x0' — normalise to
+    // number so downstream comparisons (status === 1) work reliably.
+    return {
+      transactionHash: raw.transactionHash as string,
+      blockNumber: Number(raw.blockNumber),
+      status: typeof raw.status === 'string' ? parseInt(raw.status, 16) : Number(raw.status),
+      gasUsed: raw.gasUsed != null ? String(raw.gasUsed) : undefined,
+      effectiveGasPrice: raw.effectiveGasPrice != null ? String(raw.effectiveGasPrice) : undefined,
+    };
+  }
+
+  /**
+   * Fetches the full transaction object by hash. Returns null if the tx
+   * is not found (dropped or never existed).
+   */
+  async getTransactionByHash(txHash: string, chainId: number): Promise<any> {
+    return this.rpcCallWithRetry<any>(
+      'eth_getTransactionByHash',
+      [txHash],
+      chainId,
+    );
+  }
+
   async syncNonce(walletId: string, chainId: number, walletAddress: string): Promise<number> {
     const result = await this.rpcCallWithRetry<string>(
       'eth_getTransactionCount',

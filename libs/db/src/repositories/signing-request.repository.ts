@@ -19,6 +19,9 @@ interface SigningRequestUpdate {
   block_number?: number | null;
   gas_used?: string | null;
   effective_gas_price?: string | null;
+  speed_up_attempts?: number;
+  original_tx_hash?: string | null;
+  last_speed_up_at?: Date | null;
   signed_at?: Date;
   broadcasted_at?: Date;
   confirmed_at?: Date;
@@ -26,7 +29,7 @@ interface SigningRequestUpdate {
 
 @Injectable()
 export class SigningRequestRepository implements ISigningRequestRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }
 
   async findById(id: string): Promise<SigningRequest | undefined> {
     const result = await this.db
@@ -58,6 +61,14 @@ export class SigningRequestRepository implements ISigningRequestRepository {
       .from(signing_requests)
       .where(eq(signing_requests.wallet_id, walletId))
       .orderBy(desc(signing_requests.created_at));
+  }
+
+  async findBroadcasted(): Promise<SigningRequest[]> {
+    return await this.db
+      .select()
+      .from(signing_requests)
+      .where(eq(signing_requests.status, 'broadcasted'))
+      .orderBy(signing_requests.broadcasted_at);
   }
 
   async create(data: NewSigningRequest): Promise<SigningRequest> {

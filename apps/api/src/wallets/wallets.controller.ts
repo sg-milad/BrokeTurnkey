@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Param, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  HttpCode,
+  Req,
+} from '@nestjs/common';
 import { WalletService, SigningService } from '@app/wallet';
 import { DeriveWalletDto } from './dto/derive-wallet.dto';
 import { SignTransactionDto } from './dto/sign-transaction.dto';
@@ -12,7 +20,7 @@ export class WalletsController {
   constructor(
     private readonly walletService: WalletService,
     private readonly signingService: SigningService,
-  ) {}
+  ) { }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get wallet details by id' })
@@ -26,6 +34,26 @@ export class WalletsController {
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
   async listSigningRequests(@Param('id') id: string) {
     return this.walletService.listSigningRequestsByWalletId(id);
+  }
+
+  @Get(':id/signing-requests/:requestId')
+  @ApiOperation({
+    summary: 'Get current status of a single signing request (polling)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Current signing request status returned.',
+  })
+  async getSigningRequest(
+    @Param('id') walletId: string,
+    @Param('requestId') requestId: string,
+    @Req() req: any,
+  ) {
+    return this.walletService.getSigningRequestById(
+      req.user.orgId,
+      walletId,
+      requestId,
+    );
   }
 
   @Post()

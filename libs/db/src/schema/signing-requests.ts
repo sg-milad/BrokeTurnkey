@@ -37,6 +37,9 @@ export const signing_requests = pgTable(
     gas_used: varchar('gas_used', { length: 50 }),
     effective_gas_price: varchar('effective_gas_price', { length: 50 }),
     idempotency_key: varchar('idempotency_key', { length: 128 }),
+    speed_up_attempts: integer('speed_up_attempts').notNull().default(0),
+    original_tx_hash: varchar('original_tx_hash', { length: 66 }),
+    last_speed_up_at: timestamp('last_speed_up_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),
