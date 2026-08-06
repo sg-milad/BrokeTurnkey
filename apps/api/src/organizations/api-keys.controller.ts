@@ -18,7 +18,14 @@ import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
-import { AuthService, Public, Scopes, OptionalStampVerifierGuard } from '@app/auth';
+import {
+  AuthService,
+  Public,
+  Scopes,
+  CurrentUser,
+  OptionalStampVerifierGuard,
+  type AuthUser,
+} from '@app/auth';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 @ApiTags('api-keys')
@@ -31,7 +38,7 @@ import { CreateApiKeyDto } from './dto/create-api-key.dto';
 })
 @Controller('organizations/:id/api-keys')
 export class ApiKeysController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post()
   @Public()
@@ -45,11 +52,6 @@ export class ApiKeysController {
       'X-Bootstrap-Token header returned by POST /organizations/:id/onboard. ' +
       'Scopes default to ["*"] when omitted.',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Organization ID (UUID)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
   @ApiResponse({
     status: 201,
     description: 'API key created. Returns the keyId and raw publicKey.',
@@ -60,17 +62,16 @@ export class ApiKeysController {
   })
   @ApiNotFoundResponse({ description: 'Organization not found.' })
   async registerApiKey(
-    @Param('id') orgId: string,
     @Body() body: CreateApiKeyDto,
     @Req() request: Record<string, any>,
+    @CurrentUser() user: AuthUser,
   ) {
     const headers = request.headers as Record<string, string>;
     const bootstrapToken = headers['x-bootstrap-token'] || undefined;
-    const user = request.user as { apiKeyId?: string } | undefined;
     const requestingKeyId = user?.apiKeyId || undefined;
 
     return this.authService.registerApiKey(
-      orgId,
+      user.orgId,
       body,
       bootstrapToken,
       requestingKeyId,
@@ -80,17 +81,12 @@ export class ApiKeysController {
   @Get()
   @HttpCode(200)
   @ApiOperation({ summary: 'List API keys for organization' })
-  @ApiParam({
-    name: 'id',
-    description: 'Organization ID (UUID)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
   @ApiResponse({
     status: 200,
     description: 'Active API keys returned.',
   })
   @ApiNotFoundResponse({ description: 'Organization not found.' })
-  async listApiKeys(@Param('id') orgId: string) {
+  async listApiKeys(@CurrentUser('orgId') orgId: string) {
     return this.authService.listApiKeys(orgId);
   }
 
@@ -103,11 +99,6 @@ export class ApiKeysController {
       'Revokes an API key so it can no longer be used for authentication.',
   })
   @ApiParam({
-    name: 'id',
-    description: 'Organization ID (UUID)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
-  @ApiParam({
     name: 'keyId',
     description: 'Key ID of the API key to revoke',
     example: 'a3f5c9a8-7d4b-4f6e-9b2c-1e8d6a4f0c33',
@@ -118,7 +109,7 @@ export class ApiKeysController {
   })
   @ApiNotFoundResponse({ description: 'API key not found.' })
   async revokeApiKey(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Param('keyId') keyId: string,
   ) {
     return this.authService.revokeApiKey(orgId, keyId);

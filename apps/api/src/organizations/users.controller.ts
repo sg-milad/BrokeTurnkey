@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UserService } from '@app/users';
-import { Scopes } from '@app/auth';
+import { Scopes, CurrentUser } from '@app/auth';
 
 @ApiTags('users')
 @Controller('organizations/:id/users')
@@ -22,7 +22,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Create a user' })
   @ApiResponse({ status: 201, description: 'User created.' })
   async createUser(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Body() body: { externalId: string; email?: string; role?: string },
   ) {
     return this.userService.createUser(orgId, body);
@@ -32,7 +32,7 @@ export class UsersController {
   @HttpCode(200)
   @ApiOperation({ summary: 'List users for organization' })
   @ApiResponse({ status: 200, description: 'Users returned.' })
-  async listUsers(@Param('id') orgId: string) {
+  async listUsers(@CurrentUser('orgId') orgId: string) {
     return this.userService.listUsers(orgId);
   }
 
@@ -40,8 +40,11 @@ export class UsersController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Get a user by ID' })
   @ApiResponse({ status: 200, description: 'User returned.' })
-  async getUser(@Param('id') _orgId: string, @Param('userId') userId: string) {
-    return this.userService.getUser(userId);
+  async getUser(
+    @CurrentUser('orgId') orgId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.userService.getUser(orgId, userId);
   }
 
   @Delete(':userId')
@@ -50,7 +53,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Delete a user' })
   @ApiResponse({ status: 200, description: 'User deleted.' })
   async deleteUser(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Param('userId') userId: string,
   ) {
     return this.userService.deleteUser(orgId, userId);

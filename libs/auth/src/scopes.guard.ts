@@ -6,6 +6,7 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { AuthUser } from './user.decorator';
 
 export const SCOPES_KEY = 'required_scopes';
 
@@ -20,7 +21,7 @@ export const Scopes = (...scopes: string[]) => SetMetadata(SCOPES_KEY, scopes);
 
 @Injectable()
 export class ScopesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) { }
 
   canActivate(context: ExecutionContext): boolean {
     const required = this.reflector.getAllAndOverride<string[]>(SCOPES_KEY, [
@@ -34,7 +35,7 @@ export class ScopesGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Record<string, any>>();
-    const user = request.user as { scopes?: string[] } | undefined;
+    const user = request.user as AuthUser | undefined;
     const scopes: string[] = user?.scopes ?? [];
 
     const allowed =

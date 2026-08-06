@@ -1,13 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  HttpCode,
-  Req,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, HttpCode } from '@nestjs/common';
 import { WalletService, SigningService } from '@app/wallet';
+import { CurrentUser } from '@app/auth';
 import { DeriveWalletDto } from './dto/derive-wallet.dto';
 import { SignTransactionDto } from './dto/sign-transaction.dto';
 import { SignTypedDataDto } from './dto/sign-typed-data.dto';
@@ -20,20 +13,23 @@ export class WalletsController {
   constructor(
     private readonly walletService: WalletService,
     private readonly signingService: SigningService,
-  ) { }
+  ) {}
 
   @Get(':id')
   @ApiOperation({ summary: 'Get wallet details by id' })
   @ApiResponse({ status: 200, description: 'Wallet found.' })
-  async findOne(@Param('id') id: string) {
-    return this.walletService.getWalletById(id);
+  async findOne(@CurrentUser('orgId') orgId: string, @Param('id') id: string) {
+    return this.walletService.getWalletById(id, orgId);
   }
 
   @Get(':id/signing-requests')
   @ApiOperation({ summary: 'List signing requests for a wallet' })
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
-  async listSigningRequests(@Param('id') id: string) {
-    return this.walletService.listSigningRequestsByWalletId(id);
+  async listSigningRequests(
+    @CurrentUser('orgId') orgId: string,
+    @Param('id') id: string,
+  ) {
+    return this.walletService.listSigningRequestsByWalletId(id, orgId);
   }
 
   @Get(':id/signing-requests/:requestId')
@@ -45,23 +41,22 @@ export class WalletsController {
     description: 'Current signing request status returned.',
   })
   async getSigningRequest(
+    @CurrentUser('orgId') orgId: string,
     @Param('id') walletId: string,
     @Param('requestId') requestId: string,
-    @Req() req: any,
   ) {
-    return this.walletService.getSigningRequestById(
-      req.user.orgId,
-      walletId,
-      requestId,
-    );
+    return this.walletService.getSigningRequestById(orgId, walletId, requestId);
   }
 
   @Post()
   @ApiOperation({ summary: 'Derive a new wallet for an organization' })
   @ApiResponse({ status: 201, description: 'Wallet derived successfully.' })
-  async derive(@Body() dto: DeriveWalletDto) {
+  async derive(
+    @CurrentUser('orgId') orgId: string,
+    @Body() dto: DeriveWalletDto,
+  ) {
     return this.walletService.deriveWallet(
-      dto.orgId,
+      orgId,
       dto.userId,
       dto.label,
       dto.chainId,
@@ -78,10 +73,11 @@ export class WalletsController {
     description: 'Transaction signed and broadcast.',
   })
   async signTransaction(
+    @CurrentUser('orgId') orgId: string,
     @Param('id') walletId: string,
     @Body() dto: SignTransactionDto,
   ) {
-    return this.walletService.requestSign(dto.orgId, walletId, {
+    return this.walletService.requestSign(orgId, walletId, {
       chainId: dto.txFields.chainId,
       to: dto.txFields.to,
       value: dto.txFields.value,
@@ -102,8 +98,12 @@ export class WalletsController {
     status: 200,
     description: 'Transaction signed and broadcast.',
   })
-  async sign(@Param('id') walletId: string, @Body() dto: SignTransactionDto) {
-    return this.signTransaction(walletId, dto);
+  async sign(
+    @CurrentUser('orgId') orgId: string,
+    @Param('id') walletId: string,
+    @Body() dto: SignTransactionDto,
+  ) {
+    return this.signTransaction(orgId, walletId, dto);
   }
 
   @Post(':id/sign-typed')
@@ -111,10 +111,11 @@ export class WalletsController {
   @ApiOperation({ summary: 'Sign EIP-712 typed data' })
   @ApiResponse({ status: 200, description: 'Typed data signed.' })
   async signTyped(
+    @CurrentUser('orgId') orgId: string,
     @Param('id') walletId: string,
     @Body() dto: SignTypedDataDto,
   ) {
-    return this.signingService.signEip712(dto.orgId, walletId, {
+    return this.signingService.signEip712(orgId, walletId, {
       domain: dto.domain,
       types: dto.types,
       primaryType: dto.primaryType,
@@ -127,10 +128,11 @@ export class WalletsController {
   @ApiOperation({ summary: 'Sign a personal message (EIP-191)' })
   @ApiResponse({ status: 200, description: 'Message signed.' })
   async signMessage(
+    @CurrentUser('orgId') orgId: string,
     @Param('id') walletId: string,
     @Body() dto: SignMessageDto,
   ) {
-    return this.signingService.signPersonalMessage(dto.orgId, walletId, {
+    return this.signingService.signPersonalMessage(orgId, walletId, {
       message: dto.message,
     });
   }

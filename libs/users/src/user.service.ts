@@ -17,7 +17,7 @@ export class UserService {
   constructor(
     private readonly userRepo: UserRepository,
     private readonly auditLogRepo: AuditLogRepository,
-  ) {}
+  ) { }
 
   async createUser(orgId: string, data: CreateUserDto) {
     // Check if user already exists for this org
@@ -76,9 +76,14 @@ export class UserService {
     }));
   }
 
-  async getUser(userId: string) {
+  async getUser(orgId: string, userId: string) {
     const user = await this.userRepo.findById(userId);
     if (!user) throw new NotFoundException(`User ${userId} not found`);
+    if (user.org_id !== orgId) {
+      throw new BadRequestException(
+        'User does not belong to this organization',
+      );
+    }
 
     return {
       id: user.id,

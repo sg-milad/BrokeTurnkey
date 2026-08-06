@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PolicyService } from '@app/policy';
-import { Scopes } from '@app/auth';
+import { Scopes, CurrentUser } from '@app/auth';
 
 @ApiTags('policies')
 @Controller('organizations/:id/policies')
@@ -22,7 +22,7 @@ export class PoliciesController {
   @ApiOperation({ summary: 'Create a policy' })
   @ApiResponse({ status: 201, description: 'Policy created.' })
   async createPolicy(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Body()
     body: {
       name: string;
@@ -50,7 +50,7 @@ export class PoliciesController {
   @HttpCode(200)
   @ApiOperation({ summary: 'List policies for organization' })
   @ApiResponse({ status: 200, description: 'Policies returned.' })
-  async listPolicies(@Param('id') orgId: string) {
+  async listPolicies(@CurrentUser('orgId') orgId: string) {
     return this.policyService.listPolicies(orgId);
   }
 
@@ -60,7 +60,7 @@ export class PoliciesController {
   @ApiOperation({ summary: 'Delete a policy' })
   @ApiResponse({ status: 200, description: 'Policy deleted.' })
   async deletePolicy(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Param('policyId') policyId: string,
   ) {
     return this.policyService.deletePolicy(orgId, policyId);

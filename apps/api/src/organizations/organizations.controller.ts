@@ -12,7 +12,7 @@ import { type organization } from '@app/db/schema/organizations';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
-import { Public } from '@app/auth';
+import { Public, CurrentUser } from '@app/auth';
 import { AuditLogRepository } from '@app/db/repositories';
 
 @ApiTags('organizations')
@@ -44,8 +44,10 @@ export class OrganizationsController {
     description: 'The organization has been found.',
     type: OrganizationDto,
   })
-  async findOne(@Param('id') id: string): Promise<organization | undefined> {
-    return this.organizationsService.findOne(id);
+  async findOne(
+    @CurrentUser('orgId') orgId: string,
+  ): Promise<organization | undefined> {
+    return this.organizationsService.findOne(orgId);
   }
 
   @Get('slug/:slug')
@@ -65,16 +67,16 @@ export class OrganizationsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'List wallets by organization id' })
   @ApiResponse({ status: 200, description: 'Wallets returned.' })
-  async listWallets(@Param('id') id: string) {
-    return this.organizationsService.listWalletsByOrgId(id);
+  async listWallets(@CurrentUser('orgId') orgId: string) {
+    return this.organizationsService.listWalletsByOrgId(orgId);
   }
 
   @Get(':id/signing-requests')
   @HttpCode(200)
   @ApiOperation({ summary: 'List signing requests by organization id' })
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
-  async listSigningRequests(@Param('id') id: string) {
-    return this.organizationsService.listSigningRequestsByOrgId(id);
+  async listSigningRequests(@CurrentUser('orgId') orgId: string) {
+    return this.organizationsService.listSigningRequestsByOrgId(orgId);
   }
 
   @Post(':id/onboard')
@@ -99,7 +101,7 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Query audit log for organization' })
   @ApiResponse({ status: 200, description: 'Audit log entries returned.' })
   async queryAuditLog(
-    @Param('id') orgId: string,
+    @CurrentUser('orgId') orgId: string,
     @Query('event') event?: string,
     @Query('userId') userId?: string,
     @Query('walletId') walletId?: string,

@@ -154,12 +154,14 @@ export class WalletService {
     }));
   }
 
-  async getWalletById(walletId: string) {
+  async getWalletById(walletId: string, orgId: string) {
     const wallet = await this.walletRepo.findById(walletId);
     if (!wallet)
       throw new NotFoundException(
         `Wallet with id "${walletId}" does not exist`,
       );
+    if (wallet.org_id !== orgId)
+      throw new BadRequestException('Wallet does not belong to this org');
     return {
       id: wallet.id,
       orgId: wallet.org_id,
@@ -177,12 +179,14 @@ export class WalletService {
     return requests.map(this.mapSigningRequest);
   }
 
-  async listSigningRequestsByWalletId(walletId: string) {
+  async listSigningRequestsByWalletId(walletId: string, orgId: string) {
     const wallet = await this.walletRepo.findById(walletId);
     if (!wallet)
       throw new NotFoundException(
         `Wallet with id "${walletId}" does not exist`,
       );
+    if (wallet.org_id !== orgId)
+      throw new BadRequestException('Wallet does not belong to this org');
     const requests = await this.signingRequestRepo.findByWalletId(walletId);
     return requests.map(this.mapSigningRequest);
   }
