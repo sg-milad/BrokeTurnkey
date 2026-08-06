@@ -17,6 +17,7 @@ graph TD
         WalletLib["@app/wallet\nWalletService — wallet CRUD, address cache"]
         PolicyLib["@app/policy\nPolicyEngine — spend limits, allowlists, time locks"]
         GasLib["@app/gas\nGasService — fee estimation, nonce management, broadcast"]
+        MonitorLib["@app/monitor\nTransactionMonitorService — scheduled poller\nconfirmation · stuck detection · speed-up"]
         DbLib["@app/db\nDatabaseModule — Drizzle ORM, DRIZZLE_CLIENT token"]
     end
 
@@ -41,6 +42,9 @@ graph TD
     WalletLib --> GasLib
     WalletLib --> DbLib
     GasLib --> DbLib
+    MonitorLib --> DbLib
+    MonitorLib --> WalletLib
+    MonitorLib -->|"eth_getTransactionReceipt · eth_getTransactionByHash"| RPC
     WalletLib -->|"HTTP POST + X-Crypto-Token (internal Docker network)"| CryptoHTTP
     CryptoHTTP --> CryptoLogic
     CryptoLogic --> VaultClient
@@ -76,7 +80,7 @@ that handles all client-facing requests.
 - Never holds a Vault token or communicates with Vault directly
 - Never sees a plaintext seed, plaintext DEK, or private key
 
-**Libs it owns:** `@app/auth`, `@app/wallet`, `@app/gas`, `@app/policy`, `@app/db`
+**Libs it owns:** `@app/auth`, `@app/wallet`, `@app/gas`, `@app/policy`, `@app/monitor`, `@app/db`
 
 ---
 
@@ -160,6 +164,29 @@ replay attacks even if TLS is terminated upstream.
 - Enforces time locks (e.g. no signing outside business hours)
 - Reads policy rules from the `policies` table
 - Returns allow/deny decision to WalletService before any signing call
+
+---
+
+### `@app/monitor` — TransactionMonitorService (`libs/monitor/`)
+
+**What it is:** A NestJS scheduled service that owns the post-broadcast transaction lifecycle. Runs inside `apps/api` — no separate container or process.
+
+**What it does:**
+
+- Polls `signing_requests WHERE status = 'broadcasted'` every 15 seconds (`@nestjs/schedule`)
+- Calls `eth_getTransactionReceipt` for each pending row — updates to `confirmed` on success
+- Detects stuck transactions (no receipt after `STUCK_THRESHOLD_MINUTES`) and triggers speed-up
+- Speed-up: calls `WalletService.requestSign` directly (in-process, no HTTP), broadcasts replacement tx with 1.2x gas, same nonce
+- After `MAX_SPEED_UP_ATTEMPTS` failed speed-ups, marks the row `failed`
+- Detects dropped transactions via `eth_getTransactionByHash` and marks them `dropped`
+- Preserves `original_tx_hash` on first speed-up for audit trail integrity
+
+**What it does NOT do:**
+
+- Does not handle the initial broadcast — that stays in `WalletService`
+- Does not send webhooks — status updates in Postgres are the only output (webhook extension planned for Phase 8)
+
+**Migration path:** When running multiple API instances, replace `@nestjs/schedule` with BullMQ backed by Redis (Phase 8). Business logic is unchanged — only the trigger mechanism swaps.
 
 ---
 
@@ -273,13 +300,15 @@ encrypted key material.
 
 ## Communication map
 
-| From              | To                | Protocol                       | What is sent                          |
-| ----------------- | ----------------- | ------------------------------ | ------------------------------------- |
-| Client            | NestJS API        | HTTPS + X-Stamp                | Signed API requests                   |
-| NestJS API        | Go Crypto Service | HTTP + `X-Crypto-Token` (shared secret, internal Docker network) | Ciphertext + tx fields |
-| Go Crypto Service | HashiCorp Vault   | HTTP (internal Docker network) | AppRole login, encrypt/decrypt calls  |
-| NestJS API        | PostgreSQL        | TCP (internal Docker network)  | SQL queries — reads/writes ciphertext |
-| NestJS API        | External RPC      | HTTPS                          | Signed raw transactions for broadcast |
+| From                            | To                | Protocol                                                         | What is sent                                            |
+| ------------------------------- | ----------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| Client                          | NestJS API        | HTTPS + X-Stamp                                                  | Signed API requests                                     |
+| NestJS API                      | Go Crypto Service | HTTP + `X-Crypto-Token` (shared secret, internal Docker network) | Ciphertext + tx fields                                  |
+| Go Crypto Service               | HashiCorp Vault   | HTTP (internal Docker network)                                   | AppRole login, encrypt/decrypt calls                    |
+| NestJS API                      | PostgreSQL        | TCP (internal Docker network)                                    | SQL queries — reads/writes ciphertext                   |
+| NestJS API                      | External RPC      | HTTPS                                                            | Signed raw transactions for broadcast                   |
+| TransactionMonitor (in-process) | PostgreSQL        | TCP (internal Docker network)                                    | Poll `signing_requests`, write status updates           |
+| TransactionMonitor (in-process) | External RPC      | HTTPS                                                            | `eth_getTransactionReceipt`, `eth_getTransactionByHash` |
 
 **Nothing sensitive crosses the Docker network boundary.** All plaintext key
 material exists only inside the Go crypto service process memory, for the

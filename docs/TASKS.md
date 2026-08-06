@@ -466,3 +466,89 @@ Smart Account Wallet (Phase 7)
 - If Vault is sealed, emits a structured log event and fires a webhook event `vault.sealed` to all orgs
 
 **Done when:** Rate limiting rejects excess requests with the correct headers. The DEK rotation job completes against a live Vault without data loss. Webhook events are delivered and verifiable with the HMAC signature. The `/health` endpoint correctly reflects the state of all downstream dependencies.
+
+---
+
+## Phase 9 — Async Transaction Lifecycle
+
+**Goal:** Move confirmation tracking out of the HTTP request path. `POST /wallets/:id/sign` returns immediately after broadcast. A `@nestjs/schedule` poller inside `apps/api` owns everything after that.
+
+**Why it exists:** Blocking an HTTP request on `waitForReceipt` is fragile — it ties up a connection for seconds to minutes and fails silently on timeout. `signing_requests` already tracks status; a scheduler that polls that table periodically is all that's needed to drive the lifecycle forward. No new container, no new infrastructure.
+
+### Changes to Phase 3 sign flow
+
+`POST /wallets/:id/sign` is trimmed to fire-and-forget:
+
+1. Idempotency check
+2. Policy evaluation
+3. Estimate fees
+4. Reserve nonce → create `signing_requests` row (`status = 'pending'`)
+5. Sign → `status = 'signed'`
+6. Broadcast → `status = 'broadcasted'`
+7. **Return immediately:** `{ signingRequestId, txHash, status: "broadcasted" }`
+
+`waitForReceipt` is removed from the request path entirely. The scheduler owns everything after `broadcasted`.
+
+### New polling endpoint
+
+- `GET /wallets/:id/signing-requests/:requestId` — returns current status of a single signing request. Used by clients to poll after receiving `broadcasted`. Requires valid stamp.
+
+### `@app/monitor` — TransactionMonitorService (new lib)
+
+A NestJS lib running inside `apps/api`. Uses `@nestjs/schedule` — no new container, no Redis, no separate process. `signing_requests` acts as the implicit job queue: the `status` column drives all state transitions.
+
+**`PendingMonitor`** — scheduled every `PENDING_POLL_INTERVAL_SECONDS` (default: 15):
+
+- Queries `signing_requests WHERE status = 'broadcasted'`
+- For each row, calls `eth_getTransactionReceipt` on the correct chain's RPC
+- **Receipt found** → update `status = 'confirmed'`, set `block_number`, `gas_used`, `effective_gas_price`
+- **No receipt + age < `STUCK_THRESHOLD_MINUTES`** → skip, check again next cycle
+- **No receipt + age ≥ `STUCK_THRESHOLD_MINUTES`** → call `SpeedUpService`
+
+**`SpeedUpService`** — called by PendingMonitor for stuck transactions:
+
+- Calls `eth_getTransactionByHash` to determine actual mempool state
+- **Not found (dropped)** → mark `status = 'dropped'`, done
+- **Found (still pending)** → proceed with speed-up:
+  - Check `speed_up_attempts` — if ≥ `MAX_SPEED_UP_ATTEMPTS` (default: 3) → mark `status = 'failed'`, `error_type = 'permanent'`, `error_message = 'max speed-up attempts reached'`, done
+  - Build replacement tx: same nonce, same `to`/`value`/`data`, `maxFeePerGas * GAS_BUMP_MULTIPLIER`, `maxPriorityFeePerGas * GAS_BUMP_MULTIPLIER` (default: 1.2 — above the 10% minimum required by most nodes)
+  - Call `WalletService.requestSign` directly (in-process — no HTTP, no stamp needed)
+  - Broadcast replacement via `eth_sendRawTransaction`
+  - Update row: new `tx_hash`, increment `speed_up_attempts`, `last_speed_up_at = now()`, `status = 'broadcasted'`
+  - On next poll cycle, PendingMonitor picks it up again with the new hash
+
+### Database schema additions
+
+New columns on `signing_requests`:
+
+- `speed_up_attempts` int, default 0
+- `original_tx_hash` varchar (nullable) — set on first speed-up, never overwritten again
+- `last_speed_up_at` timestamp (nullable)
+
+### Environment variables (added to `apps/api`)
+
+| Variable                        | Default | Description                                                       |
+| ------------------------------- | ------- | ----------------------------------------------------------------- |
+| `PENDING_POLL_INTERVAL_SECONDS` | 15      | How often PendingMonitor runs                                     |
+| `STUCK_THRESHOLD_MINUTES`       | 5       | Age after which a broadcasted tx is considered stuck              |
+| `MAX_SPEED_UP_ATTEMPTS`         | 3       | Speed-ups before marking failed                                   |
+| `GAS_BUMP_MULTIPLIER`           | 1.2     | Applied to maxFeePerGas and maxPriorityFeePerGas on each speed-up |
+
+### Migration path (future — Phase 8)
+
+When running multiple API instances, the in-memory scheduler causes duplicate polling. At that point, replace `@nestjs/schedule` with BullMQ backed by Redis (already planned in Phase 8 for rate limiting). The business logic inside `TransactionMonitorService` and `SpeedUpService` does not change — only the trigger mechanism is swapped.
+
+### Done when
+
+- `POST /wallets/:id/sign` returns `{ signingRequestId, txHash, status: "broadcasted" }` without waiting for confirmation
+- `GET /wallets/:id/signing-requests/:requestId` returns current status at any point in the lifecycle
+- Scheduler picks up `broadcasted` rows and updates them to `confirmed` on receipt
+- A stuck tx (no receipt after 5 min) is resubmitted with 1.2x gas and eventually confirms
+- After 3 failed speed-ups, tx is marked `failed` with `error_type = 'permanent'`
+- A dropped tx is detected and marked `dropped`
+- Scheduler runs are idempotent — restarting the API does not double-process rows
+- `original_tx_hash` is preserved across speed-ups so the audit trail is intact
+
+### Future (Phase 8 webhook extension)
+
+When Phase 8 webhooks are implemented, `TransactionMonitorService` fires `tx.confirmed`, `tx.failed`, and `tx.dropped` events after each status transition. No webhook logic today — Postgres status updates are the only output.
