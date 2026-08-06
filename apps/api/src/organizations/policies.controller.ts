@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PolicyService } from '@app/policy';
 import { Scopes, CurrentUser } from '@app/auth';
+import { CreatePolicyDto } from './dto/create-policy.dto';
 
 @ApiTags('policies')
 @Controller('policies')
@@ -23,16 +24,7 @@ export class PoliciesController {
   @ApiResponse({ status: 201, description: 'Policy created.' })
   async createPolicy(
     @CurrentUser('orgId') orgId: string,
-    @Body()
-    body: {
-      name: string;
-      description?: string;
-      ruleType: string;
-      ruleConfig: Record<string, unknown>;
-      appliesTo?: string;
-      targetId?: string;
-      priority?: number;
-    },
+    @Body() body: CreatePolicyDto,
   ) {
     return this.policyService.createPolicy(orgId, {
       name: body.name,

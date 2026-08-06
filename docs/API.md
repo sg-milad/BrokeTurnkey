@@ -611,7 +611,36 @@ curl -s -X POST $API/wallets \
 # → { "walletId": "<wallet-id>", "address": "0x..." }
 ```
 
-#### Step 4 — Sign and broadcast a transaction
+#### Step 4 — Create a policy
+
+Policies are evaluated during signing (see Phase 1 under Signing Lifecycle). The
+`POST /policies` endpoint accepts a `ruleType` and a matching `ruleConfig`:
+
+```bash
+curl -s -X POST $API/policies \
+  -H 'Content-Type: application/json' \
+  -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>' \
+  -d '{
+    "name": "No transfers to the drainer",
+    "description": "Blocks payments to the known exchange drainer address",
+    "ruleType": "address_blocklist",
+    "ruleConfig": {
+      "addresses": ["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"]
+    },
+    "appliesTo": "all",
+    "priority": 0
+  }'
+# → { "id": "<policy-id>", "name": "No transfers to the drainer", "ruleType": "address_blocklist", "status": "active", "createdAt": "..." }
+```
+
+Other supported rule types:
+
+- `address_allowlist` — only allowlisted recipients; config: `{ "addresses": string[] }`
+- `spend_limit` — per-transaction cap; config: `{ "max_amount_wei": string }`
+- `time_lock` — restrict signing to a time window; config:
+  `{ "start_time": "<ISO 8601>", "end_time": "<ISO 8601>" }`
+
+#### Step 5 — Sign and broadcast a transaction
 
 ```bash
 curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
@@ -631,7 +660,7 @@ curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
 # The nonce is always assigned by the server — do not supply one.
 ```
 
-#### Step 5 — Inspect signing history
+#### Step 6 — Inspect signing history
 
 ```bash
 curl -s $API/organizations/signing-requests \
