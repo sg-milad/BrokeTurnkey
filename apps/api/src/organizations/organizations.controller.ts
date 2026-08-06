@@ -21,24 +21,32 @@ export class OrganizationsController {
   constructor(
     private readonly organizationsService: OrganizationsService,
     private readonly auditLogRepo: AuditLogRepository,
-  ) {}
+  ) { }
 
   @Post()
   @Public()
-  @ApiOperation({ summary: 'Create an organization' })
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Create and onboard an organization',
+    description:
+      'Creates a new organization, generates its HD wallet seed, derives ' +
+      'the first signing wallet, and returns a bootstrap token for API key ' +
+      'creation.',
+  })
   @ApiResponse({
-    status: 201,
-    description: 'The organization has been successfully created.',
-    type: OrganizationDto,
+    status: 200,
+    description:
+      'Organization created and onboarded successfully. Returns the ' +
+      'organization object plus a bootstrapToken.',
   })
   async create(
     @Body() createOrganizationDto: CreateOrganizationDto,
-  ): Promise<organization> {
+  ) {
     return this.organizationsService.create(createOrganizationDto);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get an organization by id' })
+  @Get()
+  @ApiOperation({ summary: 'Get current organization' })
   @ApiResponse({
     status: 200,
     description: 'The organization has been found.',
@@ -63,42 +71,25 @@ export class OrganizationsController {
     return this.organizationsService.findBySlug(slug);
   }
 
-  @Get(':id/wallets')
+  @Get('wallets')
   @HttpCode(200)
-  @ApiOperation({ summary: 'List wallets by organization id' })
+  @ApiOperation({ summary: 'List wallets for current organization' })
   @ApiResponse({ status: 200, description: 'Wallets returned.' })
   async listWallets(@CurrentUser('orgId') orgId: string) {
     return this.organizationsService.listWalletsByOrgId(orgId);
   }
 
-  @Get(':id/signing-requests')
+  @Get('signing-requests')
   @HttpCode(200)
-  @ApiOperation({ summary: 'List signing requests by organization id' })
+  @ApiOperation({ summary: 'List signing requests for current organization' })
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
   async listSigningRequests(@CurrentUser('orgId') orgId: string) {
     return this.organizationsService.listSigningRequestsByOrgId(orgId);
   }
 
-  @Post(':id/onboard')
-  @Public()
+  @Get('audit-log')
   @HttpCode(200)
-  @ApiOperation({
-    summary: 'Onboard an organization (create seed + first wallet)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'organization onboarded successfully.',
-  })
-  async onboard(@Param('id') id: string) {
-    const result = await this.organizationsService.onboard(id);
-    const bootstrapToken =
-      await this.organizationsService.generateBootstrapToken(id);
-    return { ...result, bootstrapToken };
-  }
-
-  @Get(':id/audit-log')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Query audit log for organization' })
+  @ApiOperation({ summary: 'Query audit log for current organization' })
   @ApiResponse({ status: 200, description: 'Audit log entries returned.' })
   async queryAuditLog(
     @CurrentUser('orgId') orgId: string,

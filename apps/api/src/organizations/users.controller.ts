@@ -12,9 +12,9 @@ import { UserService } from '@app/users';
 import { Scopes, CurrentUser } from '@app/auth';
 
 @ApiTags('users')
-@Controller('organizations/:id/users')
+@Controller('users')
 export class UsersController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
   @Post()
   @Scopes('key:write')

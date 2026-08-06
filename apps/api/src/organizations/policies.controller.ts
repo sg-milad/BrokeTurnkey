@@ -12,9 +12,9 @@ import { PolicyService } from '@app/policy';
 import { Scopes, CurrentUser } from '@app/auth';
 
 @ApiTags('policies')
-@Controller('organizations/:id/policies')
+@Controller('policies')
 export class PoliciesController {
-  constructor(private readonly policyService: PolicyService) {}
+  constructor(private readonly policyService: PolicyService) { }
 
   @Post()
   @Scopes('policy:write')

@@ -36,7 +36,7 @@ import { CreateApiKeyDto } from './dto/create-api-key.dto';
     'Stamp authentication header: <base64url(DER-encoded ES256 signature)>.<timestamp_ms>.<key_id> ' +
     'signing SHA-256 of `<timestamp_ms>.<base64url(SHA-256(raw body))>`. See docs/STAMP_AUTH.md.',
 })
-@Controller('organizations/:id/api-keys')
+@Controller('api-keys')
 export class ApiKeysController {
   constructor(private readonly authService: AuthService) { }
 
@@ -49,7 +49,7 @@ export class ApiKeysController {
     description:
       'Registers a new API key for the organization. Authenticate with either ' +
       'a valid stamp (key must have key:write scope) or the one-time ' +
-      'X-Bootstrap-Token header returned by POST /organizations/:id/onboard. ' +
+      'X-Bootstrap-Token header returned by POST /organizations. ' +
       'Scopes default to ["*"] when omitted.',
   })
   @ApiResponse({

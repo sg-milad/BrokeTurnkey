@@ -11,7 +11,7 @@ export class OrganizationsService {
     private readonly organizationRepository: organizationRepository,
     private readonly walletService: WalletService,
     private readonly authService: AuthService,
-  ) {}
+  ) { }
 
   async create(
     createOrganizationDto: CreateOrganizationDto,
@@ -24,7 +24,14 @@ export class OrganizationsService {
         `organization with slug "${createOrganizationDto.slug}" already exists`,
       );
     }
-    return this.organizationRepository.create(createOrganizationDto);
+    const org = await this.organizationRepository.create(createOrganizationDto);
+
+    // Auto-onboard: create seed + first wallet, then generate bootstrap token
+    await this.walletService.onBoardOrganization(org.id);
+    const bootstrapToken =
+      await this.authService.generateBootstrapToken(org.id);
+
+    return { ...org, bootstrapToken } as organization & { bootstrapToken: string };
   }
 
   async findOne(id: string): Promise<organization | undefined> {
@@ -41,13 +48,5 @@ export class OrganizationsService {
 
   async listSigningRequestsByOrgId(id: string) {
     return this.walletService.listSigningRequestsByOrgId(id);
-  }
-
-  async onboard(id: string) {
-    return this.walletService.onBoardOrganization(id);
-  }
-
-  async generateBootstrapToken(orgId: string): Promise<string> {
-    return this.authService.generateBootstrapToken(orgId);
   }
 }
