@@ -46,14 +46,13 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 **API routes (`apps/api/`)**
 
-- `POST /organizations` — create organization record
-- `POST /organizations/:id/onboard` — generate seed, store ciphertext, create first wallet
+- `POST /organizations` — create organization and auto-onboard (generate seed, store ciphertext, create first wallet, return bootstrap token)
 - `POST /wallets` — derive a new child wallet (userId optional — system wallets are created without one)
-- `GET /organizations/:id/wallets` — list wallets (address only, no derivation paths)
+- `GET /wallets` — list wallets for the authenticated org (address only, no derivation paths)
 - `GET /wallets/:id` — single wallet detail
 - `POST /wallets/:id/sign` — sign a transaction
 - `GET /wallets/:id/signing-requests` — signing history
-- `GET /organizations/:id/signing-requests` — all signing activity for an org
+- `GET /wallets/:id/signing-requests` — all signing activity for an org
 
 **Done when:** End-to-end flow works: onboard an org, derive a wallet, sign a transaction, confirm the signature is valid against the derived address using `cast wallet verify` or equivalent.
 
@@ -232,9 +231,9 @@ For failures:
 
 **API routes for policy management**
 
-- `POST /organizations/:id/policies` — create a rule
-- `GET /organizations/:id/policies` — list all rules
-- `DELETE /organizations/:id/policies/:policyId` — delete a rule
+- `POST /policies` — create a rule
+- `GET /policies` — list all rules
+- `DELETE /policies/:policyId` — delete a rule
 
 **`@app/auth` — StampVerifier**
 
@@ -243,6 +242,7 @@ For failures:
   - `listApiKeys(orgId)` — list active API keys
   - `revokeApiKey(orgId, keyId)` — revoke an API key
   - `validateBootstrapToken(orgId, token)` — validate one-time bootstrap token
+  - `generateBootstrapToken(orgId)` — generate one-time bootstrap token
 - `StampVerifierGuard` — NestJS guard applied globally
 - Parses `X-Stamp: <base64url(sig)>.<timestamp_ms>.<key_id>`
 - Rejects if timestamp is older than 5 minutes or more than 30 seconds in the future
@@ -257,15 +257,15 @@ For failures:
 
 **API key management routes**
 
-- `POST /organizations/:id/api-keys` — register a public key with scopes (e.g., `["wallet:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org onboarding and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
-- `GET /organizations/:id/api-keys` — list active keys
-- `DELETE /organizations/:id/api-keys/:keyId` — revoke a key (requires `key:write` scope)
+- `POST /api-keys` — register a public key with scopes (e.g., `["wallet:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org creation and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
+- `GET /api-keys` — list active keys
+- `DELETE /api-keys/:keyId` — revoke a key (requires `key:write` scope)
 
 **Bootstrap token mechanism**
 
-- Generated during `POST /organizations/:id/onboard` as a UUID v4
+- Generated during `POST /organizations` (auto-onboard) as a UUID v4
 - Stored as SHA-256 hash in `organizations.bootstrap_token_hash`
-- Returned once in the onboard response (never stored or logged after that)
+- Returned once in the create response (never stored or logged after that)
 - Valid for single use only — cleared after first API key registration
 - Passed via `X-Bootstrap-Token` header (no signature required)
 
@@ -279,15 +279,15 @@ For failures:
 
 **API routes for user management**
 
-- `POST /organizations/:id/users` — create a user (requires `key:write` scope)
-- `GET /organizations/:id/users` — list all users
-- `GET /organizations/:id/users/:userId` — get user details
-- `DELETE /organizations/:id/users/:userId` — delete a user (requires `key:write` scope)
+- `POST /users` — create a user (requires `key:write` scope)
+- `GET /users` — list all users
+- `GET /users/:userId` — get user details
+- `DELETE /users/:userId` — delete a user (requires `key:write` scope)
 
 **Audit log**
 
 - Every signing request, policy evaluation, wallet creation, and key management action writes a row to `audit_log`
-- `GET /organizations/:id/audit-log` — paginated, filterable by `event` type and date range
+- `GET /organizations/audit-log` — paginated, filterable by `event` type and date range
 
 **Done when:** A signing request blocked by policy returns 403 with a reason. A valid stamp authenticates successfully. A replayed stamp is rejected. The audit log records all events end-to-end.
 
@@ -450,9 +450,9 @@ Smart Account Wallet (Phase 7)
 - Events: `wallet.created`, `tx.signed`, `tx.confirmed`, `tx.failed`, `policy.denied`
 - Outbound HTTP POST to registered URLs with HMAC-SHA256 signature in `X-Webhook-Signature` header
 - Retry with exponential backoff on delivery failure (up to 3 attempts)
-- `POST /organizations/:id/webhooks` — register a webhook
-- `GET /organizations/:id/webhooks` — list webhooks
-- `DELETE /organizations/:id/webhooks/:webhookId` — deactivate
+- `POST /organizations/webhooks` — register a webhook
+- `GET /organizations/webhooks` — list webhooks
+- `DELETE /organizations/webhooks/:webhookId` — deactivate
 
 **Metrics and health**
 

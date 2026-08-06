@@ -34,22 +34,26 @@ sequenceDiagram
 
 ---
 
-## 2. organization onboarding — generate and store seed
+## 2. organization creation & onboarding — create org, generate and store seed
 
-Called once when an organization first onboards. Generates the master BIP39
-seed from which all their wallet addresses will be derived.
+Called once via `POST /organizations`. Creates the organization record,
+generates the master BIP39 seed from which all their wallet addresses will
+be derived, derives the first signing wallet, and returns a one-time
+bootstrap token.
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant API as NestJS API
     participant WS as WalletService
+    participant GC as Go Crypto Service
+    participant V as Vault
     participant DB as PostgreSQL
-    participant GO as Go Crypto Service
-    participant V as HashiCorp Vault
 
-    C->>API: POST /organizations/:id/onboard (X-Stamp)
-    API->>API: Verify stamp signature
+    C->>API: POST /organizations (Public, no stamp)
+    API->>DB: INSERT organizations (id, name, slug)
+    note over API: orgId generated as UUID, no seed yet
+    API->>API: onboardOrganization(orgId)
     API->>WS: onboardorganization(orgId)
 
     WS->>GO: POST /wallet/create {X-Crypto-Token: CRYPTO_AUTH_TOKEN}

@@ -119,40 +119,39 @@ tables.
 An organization represents a tenant in the system. Each organization owns its own
 set of wallets, policies, and signing history.
 
-### Creation
+### Creation & Onboarding
 
 Organizations are created via `POST /organizations`. The caller provides a name
-and receives back a unique organization ID and slug. No cryptographic material is
-generated at this stage.
+and slug. Creation **automatically onboards** the organization in the same
+request — no separate step is required:
 
-### Onboarding
-
-After creation, an organization must be **onboarded** before it can create wallets.
-Onboarding (`POST /organizations/:id/onboard`) triggers the following sequence:
-
-1. The NestJS API calls the Go crypto service to generate a BIP39 mnemonic and
+1. The organization record is created in PostgreSQL
+2. The NestJS API calls the Go crypto service to generate a BIP39 mnemonic and
    derive the organization seed
-2. A random Data Encryption Key (DEK) is generated
-3. The seed is encrypted with AES-256-GCM using the DEK
-4. The DEK is sent to HashiCorp Vault's Transit engine for encryption under the
+3. A random Data Encryption Key (DEK) is generated
+4. The seed is encrypted with AES-256-GCM using the DEK
+5. The DEK is sent to HashiCorp Vault's Transit engine for encryption under the
    `wallet-dek` key ring
-5. The ciphertext values (`encrypted_seed`, `seed_nonce`, `encrypted_dek`) are
+6. The ciphertext values (`encrypted_seed`, `seed_nonce`, `encrypted_dek`) are
    stored in the `organization_seeds` table
-6. All plaintext key material is zeroed in memory immediately after encryption
+7. The first signing wallet is derived at index 0
+8. A one-time bootstrap token is generated and returned with the response
+9. All plaintext key material is zeroed in memory immediately after encryption
 
-**Critical:** Onboarding can only happen once per organization. Attempting to
-onboard an already-onboarded organization returns a `400 Bad Request`.
+**Critical:** Onboarding can only happen once per organization (it is baked into
+`POST /organizations`). Attempting to create an organization with a slug that
+already exists returns a `409 Conflict`.
 
 ### Retrieval
 
-Organizations can be fetched by ID (`GET /organizations/:id`) or by slug
+Organizations can be fetched by ID (`GET /organizations`) or by slug
 (`GET /organizations/slug/:slug`). The response includes metadata but never
 exposes any encrypted fields.
 
 ### Child Resources
 
-- `GET /organizations/:id/wallets` — lists all wallets belonging to the org
-- `GET /organizations/:id/signing-requests` — lists all signing requests for the org
+- `GET /organizations/wallets` — lists all wallets belonging to the org
+- `GET /organizations/signing-requests` — lists all signing requests for the org
 
 ---
 
@@ -334,7 +333,8 @@ The guard returns the reason directly in `message`:
 ### Common Error Scenarios
 
 - **`"organization has not been onboarded"` (400)**: The org exists but has
-  not completed the onboarding flow. Call `POST /organizations/:id/onboard` first.
+  no seed. This should not normally occur since onboarding is automatic at
+  creation time. Contact support if you see this error.
 - **`"User with id \"...\" does not exist"` (404)**: The `userId` provided in a
   wallet creation request does not match any user in the database.
 - **`"Wallet does not belong to this org"` (400)**: The wallet ID and org ID do
@@ -545,7 +545,10 @@ function makeStamp(bodyBytes, keyId) {
 The full flow from zero to a signed transaction. Steps 1–3 are one-time setup
 per organization; steps 4–6 are the recurring operational flow.
 
-#### Step 1 — Create an organization
+#### Step 1 — Create and onboard an organization
+
+Creates the organization, generates the BIP39 seed, derives the first wallet,
+and returns a one-time bootstrap token needed to register your first API key.
 
 ```bash
 API=http://localhost:3000
@@ -553,27 +556,13 @@ API=http://localhost:3000
 curl -s -X POST $API/organizations \
   -H 'Content-Type: application/json' \
   -d '{"name": "Acme Corp", "slug": "acme"}'
-# → { "id": "<org-id>", "slug": "acme", "name": "Acme Corp", ... }
+# → { "id": "<org-id>", "slug": "acme", "name": "Acme Corp", "bootstrapToken": "<token>", ... }
 ```
 
-Save the returned `id` as `ORG_ID`.
+Save the returned `id` as `ORG_ID` and `bootstrapToken` — it is shown exactly
+once and cleared after first use.
 
-#### Step 2 — Onboard the organization
-
-Generates the BIP39 seed, encrypts it, stores the ciphertext, derives the
-first wallet address, and returns the one-time bootstrap token needed to
-register your first API key.
-
-```bash
-curl -s -X POST $API/organizations/$ORG_ID/onboard \
-  -H 'Content-Type: application/json' \
-  -d '{}'
-# → { "orgId": "<org-id>", "firstAddress": "0x...", "bootstrapToken": "<token>" }
-```
-
-Save `bootstrapToken` — it is shown exactly once and cleared after first use.
-
-#### Step 3 — Generate a P-256 key pair and register your first API key
+#### Step 2 — Generate a P-256 key pair and register your first API key
 
 Generate the key pair locally. The private key never leaves your machine.
 
@@ -596,7 +585,7 @@ awk '{printf "%s\\n", $0}' public.pem
 Register the key using the bootstrap token:
 
 ```bash
-curl -s -X POST $API/organizations/$ORG_ID/api-keys \
+curl -s -X POST $API/api-keys \
   -H 'Content-Type: application/json' \
   -H 'X-Bootstrap-Token: <bootstrapToken>' \
   -d '{
@@ -609,7 +598,7 @@ curl -s -X POST $API/organizations/$ORG_ID/api-keys \
 
 Save the returned `keyId` — you include it in every `X-Stamp` header.
 
-#### Step 4 — Derive a wallet
+#### Step 3 — Derive a wallet
 
 All subsequent requests require a valid stamp. Use the Node.js `makeStamp`
 helper above (or your own equivalent) to produce `X-Stamp`.
@@ -622,7 +611,7 @@ curl -s -X POST $API/wallets \
 # → { "walletId": "<wallet-id>", "address": "0x..." }
 ```
 
-#### Step 5 — Sign and broadcast a transaction
+#### Step 4 — Sign and broadcast a transaction
 
 ```bash
 curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
@@ -642,10 +631,10 @@ curl -s -X POST $API/wallets/<wallet-id>/sign-transaction \
 # The nonce is always assigned by the server — do not supply one.
 ```
 
-#### Step 6 — Inspect signing history
+#### Step 5 — Inspect signing history
 
 ```bash
-curl -s $API/organizations/<org-id>/signing-requests \
+curl -s $API/organizations/signing-requests \
   -H 'X-Stamp: <sig>.<timestamp_ms>.<key_id>'
 ```
 
