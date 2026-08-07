@@ -9,6 +9,11 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  * fresh buckets. That hole closes once StampVerifierGuard is enforced
  * globally (the stamp's key_id is then validated before throttling matters).
  * For legitimate API keys the per-key limit works as documented.
+ *
+ * TODO: Storage is in-memory (default ThrottlerStorage). When running more
+ * than one API instance, rate limits become per-instance and effectively
+ * multiply. Migrate to a shared store (e.g. Redis via @nestjs/throttler's
+ * ThrottlerStorageRedisService) before horizontal scaling.
  */
 @Injectable()
 export class ApiKeyThrottlerGuard extends ThrottlerGuard {

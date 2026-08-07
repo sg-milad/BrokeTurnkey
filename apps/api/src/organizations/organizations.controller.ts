@@ -64,9 +64,16 @@ export class OrganizationsController {
     type: OrganizationDto,
   })
   async findBySlug(
+    @CurrentUser('orgId') orgId: string,
     @Param('slug') slug: string,
   ): Promise<organization | undefined> {
-    return this.organizationsService.findBySlug(slug);
+    // Scope lookup to the caller's own organization to prevent cross-tenant
+    // data leakage. The slug must belong to the authenticated org.
+    const org = await this.organizationsService.findBySlug(slug);
+    if (!org || org.id !== orgId) {
+      return undefined;
+    }
+    return org;
   }
 
   @Get('wallets')

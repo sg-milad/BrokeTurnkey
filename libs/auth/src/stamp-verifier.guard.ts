@@ -149,7 +149,7 @@ export class StampVerifierGuard implements CanActivate {
 @Injectable()
 export class OptionalStampVerifierGuard implements CanActivate {
   constructor(
-    private readonly apiKeyRepo: ApiKeyRepository,
+    private readonly stampVerifier: StampVerifierGuard,
     private readonly reflector: Reflector,
   ) {}
 
@@ -170,9 +170,7 @@ export class OptionalStampVerifierGuard implements CanActivate {
       return true;
     }
 
-    // Delegate to the real guard logic by re-using StampVerifierGuard's
-    // verification. We instantiate it with the same repo and reflector.
-    const strict = new StampVerifierGuard(this.apiKeyRepo, this.reflector);
-    return strict.canActivate(context);
+    // Delegate to the real guard via DI-managed instance (not manual new).
+    return this.stampVerifier.canActivate(context);
   }
 }

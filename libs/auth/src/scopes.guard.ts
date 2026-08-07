@@ -13,6 +13,11 @@ export const SCOPES_KEY = 'required_scopes';
 /**
  * Declares the API-key scopes required to call a route, e.g.
  * `@Scopes('key:write')`. The `*` wildcard scope satisfies any requirement.
+ *
+ * **OR semantics**: when multiple scopes are listed, possessing ANY ONE of
+ * them is sufficient. For example, `@Scopes('wallet:sign', 'wallet:create')`
+ * allows a key that has either `wallet:sign` OR `wallet:create`.
+ *
  * Must be used on a route protected by StampVerifierGuard (which attaches
  * `request.user.scopes`); routes without an authenticated user and a scope
  * requirement are denied.
