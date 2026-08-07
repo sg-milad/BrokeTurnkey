@@ -29,6 +29,7 @@ export class UsersController {
   }
 
   @Get()
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'List users for organization' })
   @ApiResponse({ status: 200, description: 'Users returned.' })
@@ -37,6 +38,7 @@ export class UsersController {
   }
 
   @Get(':userId')
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'Get a user by ID' })
   @ApiResponse({ status: 200, description: 'User returned.' })

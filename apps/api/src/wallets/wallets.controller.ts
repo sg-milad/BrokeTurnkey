@@ -16,6 +16,7 @@ export class WalletsController {
   ) {}
 
   @Get(':id')
+  @Scopes('wallet:read')
   @ApiOperation({ summary: 'Get wallet details by id' })
   @ApiResponse({ status: 200, description: 'Wallet found.' })
   async findOne(@CurrentUser('orgId') orgId: string, @Param('id') id: string) {
@@ -23,6 +24,7 @@ export class WalletsController {
   }
 
   @Get(':id/signing-requests')
+  @Scopes('wallet:read')
   @ApiOperation({ summary: 'List signing requests for a wallet' })
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
   async listSigningRequests(
@@ -33,6 +35,7 @@ export class WalletsController {
   }
 
   @Get(':id/signing-requests/:requestId')
+  @Scopes('wallet:read')
   @ApiOperation({
     summary: 'Get current status of a single signing request (polling)',
   })

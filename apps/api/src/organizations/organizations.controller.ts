@@ -12,7 +12,7 @@ import { type organization } from '@app/db/schema/organizations';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
-import { Public, CurrentUser } from '@app/auth';
+import { Public, CurrentUser, Scopes } from '@app/auth';
 import { AuditLogRepository } from '@app/db/repositories';
 
 @ApiTags('organizations')
@@ -44,6 +44,7 @@ export class OrganizationsController {
   }
 
   @Get()
+  @Scopes('wallet:read')
   @ApiOperation({ summary: 'Get current organization' })
   @ApiResponse({
     status: 200,
@@ -57,6 +58,7 @@ export class OrganizationsController {
   }
 
   @Get('slug/:slug')
+  @Scopes('wallet:read')
   @ApiOperation({ summary: 'Get an organization by slug' })
   @ApiResponse({
     status: 200,
@@ -77,6 +79,7 @@ export class OrganizationsController {
   }
 
   @Get('wallets')
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'List wallets for current organization' })
   @ApiResponse({ status: 200, description: 'Wallets returned.' })
@@ -85,6 +88,7 @@ export class OrganizationsController {
   }
 
   @Get('signing-requests')
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'List signing requests for current organization' })
   @ApiResponse({ status: 200, description: 'Signing requests returned.' })
@@ -93,6 +97,7 @@ export class OrganizationsController {
   }
 
   @Get('audit-log')
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'Query audit log for current organization' })
   @ApiResponse({ status: 200, description: 'Audit log entries returned.' })

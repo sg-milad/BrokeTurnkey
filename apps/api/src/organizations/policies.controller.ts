@@ -39,6 +39,7 @@ export class PoliciesController {
   }
 
   @Get()
+  @Scopes('wallet:read')
   @HttpCode(200)
   @ApiOperation({ summary: 'List policies for organization' })
   @ApiResponse({ status: 200, description: 'Policies returned.' })

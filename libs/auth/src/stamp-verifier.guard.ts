@@ -8,7 +8,6 @@ import { Reflector } from '@nestjs/core';
 import { ApiKeyRepository } from '@app/db/repositories';
 import { createHash, verify } from 'crypto';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import { AuthUser } from './user.decorator';
 
 // Request body this size or larger is rejected by the body parser before the
 // guard runs (express.json `limit` option). Keeping it in sync with main.ts.

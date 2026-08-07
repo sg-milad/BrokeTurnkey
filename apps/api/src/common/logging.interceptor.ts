@@ -24,8 +24,14 @@ function sanitizeForLog(value: unknown): unknown {
     'authorization',
     'privatekey',
     'private_key',
+    'publickey',
+    'public_key',
     'mnemonic',
     'seed',
+    'encrypted',
+    'dek',
+    'bootstrap',
+    'nonce',
   ];
 
   if (Array.isArray(value)) {
