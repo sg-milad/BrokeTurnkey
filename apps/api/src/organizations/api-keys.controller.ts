@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Get,
@@ -38,7 +39,7 @@ import { CreateApiKeyDto } from './dto/create-api-key.dto';
 })
 @Controller('api-keys')
 export class ApiKeysController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Post()
   @Public()
@@ -64,14 +65,27 @@ export class ApiKeysController {
   async registerApiKey(
     @Body() body: CreateApiKeyDto,
     @Req() request: Record<string, any>,
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
   ) {
     const headers = request.headers as Record<string, string>;
     const bootstrapToken = headers['x-bootstrap-token'] || undefined;
     const requestingKeyId = user?.apiKeyId || undefined;
 
+    // Resolve orgId: from stamp context (subsequent keys) or by looking up
+    // the org that owns the bootstrap token (first key registration).
+    let orgId = user?.orgId;
+    if (!orgId && bootstrapToken) {
+      orgId =
+        await this.authService.resolveOrgIdFromBootstrapToken(bootstrapToken);
+    }
+    if (!orgId) {
+      throw new BadRequestException(
+        'Either bootstrap token or valid API key required',
+      );
+    }
+
     return this.authService.registerApiKey(
-      user.orgId,
+      orgId,
       body,
       bootstrapToken,
       requestingKeyId,

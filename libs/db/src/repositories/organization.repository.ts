@@ -29,6 +29,16 @@ export class organizationRepository implements IorganizationRepository {
     return result[0];
   }
 
+  async findByBootstrapTokenHash(
+    hash: string,
+  ): Promise<organization | undefined> {
+    const result = await this.db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.bootstrap_token_hash, hash));
+    return result[0];
+  }
+
   async create(data: Neworganization): Promise<organization> {
     const result = await this.db.insert(organizations).values(data).returning();
     return result[0];

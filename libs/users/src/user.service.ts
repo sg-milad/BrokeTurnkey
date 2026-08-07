@@ -17,7 +17,7 @@ export class UserService {
   constructor(
     private readonly userRepo: UserRepository,
     private readonly auditLogRepo: AuditLogRepository,
-  ) { }
+  ) {}
 
   async createUser(orgId: string, data: CreateUserDto) {
     // Check if user already exists for this org

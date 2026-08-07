@@ -43,4 +43,4 @@ import {
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
 })
-export class ApiModule { }
+export class ApiModule {}

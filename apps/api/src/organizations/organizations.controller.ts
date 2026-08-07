@@ -21,7 +21,7 @@ export class OrganizationsController {
   constructor(
     private readonly organizationsService: OrganizationsService,
     private readonly auditLogRepo: AuditLogRepository,
-  ) { }
+  ) {}
 
   @Post()
   @Public()
@@ -39,9 +39,7 @@ export class OrganizationsController {
       'Organization created and onboarded successfully. Returns the ' +
       'organization object plus a bootstrapToken.',
   })
-  async create(
-    @Body() createOrganizationDto: CreateOrganizationDto,
-  ) {
+  async create(@Body() createOrganizationDto: CreateOrganizationDto) {
     return this.organizationsService.create(createOrganizationDto);
   }
 

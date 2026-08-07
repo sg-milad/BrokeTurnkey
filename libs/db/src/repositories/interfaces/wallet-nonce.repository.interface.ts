@@ -13,5 +13,9 @@ export interface IWalletNonceRepository {
    * it is greater than the current value. This is used to synchronize the
    * nonce with the chain after a successful broadcast.
    */
-  syncFromChain(walletId: string, chainId: number, chainNonce: number): Promise<void>;
+  syncFromChain(
+    walletId: string,
+    chainId: number,
+    chainNonce: number,
+  ): Promise<void>;
 }

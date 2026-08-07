@@ -18,7 +18,7 @@ import { IWalletNonceRepository } from './interfaces/wallet-nonce.repository.int
  */
 @Injectable()
 export class WalletNonceRepository implements IWalletNonceRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
   async reserve(walletId: string, chainId: number): Promise<number> {
     const result = await this.db.execute(
@@ -36,7 +36,11 @@ export class WalletNonceRepository implements IWalletNonceRepository {
     return Number(row.reserved);
   }
 
-  async syncFromChain(walletId: string, chainId: number, chainNonce: number): Promise<void> {
+  async syncFromChain(
+    walletId: string,
+    chainId: number,
+    chainNonce: number,
+  ): Promise<void> {
     await this.db.execute(
       sql`INSERT INTO wallet_nonces (wallet_id, chain_id, nonce)
         VALUES (${walletId}, ${chainId}, ${chainNonce})

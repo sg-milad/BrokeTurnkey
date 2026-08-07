@@ -29,7 +29,7 @@ interface SigningRequestUpdate {
 
 @Injectable()
 export class SigningRequestRepository implements ISigningRequestRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) { }
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
   async findById(id: string): Promise<SigningRequest | undefined> {
     const result = await this.db

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Param, HttpCode } from '@nestjs/common';
 import { WalletService, SigningService } from '@app/wallet';
-import { CurrentUser } from '@app/auth';
+import { CurrentUser, Scopes } from '@app/auth';
 import { DeriveWalletDto } from './dto/derive-wallet.dto';
 import { SignTransactionDto } from './dto/sign-transaction.dto';
 import { SignTypedDataDto } from './dto/sign-typed-data.dto';
@@ -49,6 +49,7 @@ export class WalletsController {
   }
 
   @Post()
+  @Scopes('wallet:create')
   @ApiOperation({ summary: 'Derive a new wallet for an organization' })
   @ApiResponse({ status: 201, description: 'Wallet derived successfully.' })
   async derive(
@@ -64,6 +65,7 @@ export class WalletsController {
   }
 
   @Post(':id/sign-transaction')
+  @Scopes('wallet:sign')
   @HttpCode(200)
   @ApiOperation({
     summary: 'Sign and broadcast a transaction (canonical route)',
@@ -89,6 +91,7 @@ export class WalletsController {
   }
 
   @Post(':id/sign')
+  @Scopes('wallet:sign')
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -107,6 +110,7 @@ export class WalletsController {
   }
 
   @Post(':id/sign-typed')
+  @Scopes('wallet:sign')
   @HttpCode(200)
   @ApiOperation({ summary: 'Sign EIP-712 typed data' })
   @ApiResponse({ status: 200, description: 'Typed data signed.' })
@@ -124,6 +128,7 @@ export class WalletsController {
   }
 
   @Post(':id/sign-message')
+  @Scopes('wallet:sign')
   @HttpCode(200)
   @ApiOperation({ summary: 'Sign a personal message (EIP-191)' })
   @ApiResponse({ status: 200, description: 'Message signed.' })

@@ -8,12 +8,8 @@ import { SpeedUpService } from './speed-up.service';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-    imports: [DatabaseModule, GasModule, CryptoClientModule, ConfigModule],
-    providers: [
-        TransactionMonitorService,
-        PendingMonitor,
-        SpeedUpService,
-    ],
-    exports: [TransactionMonitorService],
+  imports: [DatabaseModule, GasModule, CryptoClientModule, ConfigModule],
+  providers: [TransactionMonitorService, PendingMonitor, SpeedUpService],
+  exports: [TransactionMonitorService],
 })
-export class MonitorModule { }
+export class MonitorModule {}

@@ -5,10 +5,10 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
  * StampVerifierGuard (and OptionalStampVerifierGuard when a stamp is present).
  */
 export interface AuthUser {
-    orgId: string;
-    apiKeyId: string;
-    keyId: string;
-    scopes: string[];
+  orgId: string;
+  apiKeyId: string;
+  keyId: string;
+  scopes: string[];
 }
 
 /**
@@ -26,8 +26,8 @@ export interface AuthUser {
  *   handler(@CurrentUser('orgId') orgId: string) { ... }
  */
 export const CurrentUser = createParamDecorator(
-    (data: keyof AuthUser | undefined, ctx: ExecutionContext) => {
-        const user = ctx.switchToHttp().getRequest().user as AuthUser;
-        return data ? user[data] : user;
-    },
+  (data: keyof AuthUser | undefined, ctx: ExecutionContext) => {
+    const user = ctx.switchToHttp().getRequest().user as AuthUser;
+    return data ? user[data] : user;
+  },
 );

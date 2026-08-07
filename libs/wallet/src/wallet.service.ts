@@ -55,7 +55,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) { }
+  ) {}
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -340,7 +340,9 @@ export class WalletService {
         wallet.derivation_path,
         txFields,
       );
-      this.logger.log(`signResult.rawTx length: ${signResult.rawTx?.length}, value: ${signResult.rawTx?.substring(0, 20)}`);
+      this.logger.log(
+        `signResult.rawTx length: ${signResult.rawTx?.length}, value: ${signResult.rawTx?.substring(0, 20)}`,
+      );
     } catch (err) {
       const errorType = classifyError(err as Error);
       // Log the full detail server-side; never surface crypto/RPC internals
@@ -390,9 +392,13 @@ export class WalletService {
       });
 
       // Sync nonce — the reserved nonce was never used on-chain
-      this.gasService.syncNonce(walletId, req.chainId, wallet.address).catch((err) =>
-        this.logger.warn(`Nonce sync after broadcast failure: ${(err as Error).message}`),
-      );
+      this.gasService
+        .syncNonce(walletId, req.chainId, wallet.address)
+        .catch((err) =>
+          this.logger.warn(
+            `Nonce sync after broadcast failure: ${(err as Error).message}`,
+          ),
+        );
 
       throw new HttpException(
         `Transaction broadcast failed (${errorType})`,

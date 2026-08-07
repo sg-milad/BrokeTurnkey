@@ -15,7 +15,7 @@ import { CreatePolicyDto } from './dto/create-policy.dto';
 @ApiTags('policies')
 @Controller('policies')
 export class PoliciesController {
-  constructor(private readonly policyService: PolicyService) { }
+  constructor(private readonly policyService: PolicyService) {}
 
   @Post()
   @Scopes('policy:write')

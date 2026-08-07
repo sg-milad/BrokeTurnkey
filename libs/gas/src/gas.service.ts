@@ -13,7 +13,7 @@ export class GasService {
     private readonly chainService: ChainService,
     @Inject(WALLET_NONCE_REPOSITORY)
     private readonly walletNonceRepo: IWalletNonceRepository,
-  ) { }
+  ) {}
 
   // -------------------------------------------------------------------------
   // Fee estimation — EIP-1559 only
@@ -111,9 +111,14 @@ export class GasService {
     rawTxHex: string,
     chainId: number,
   ): Promise<string> {
-
-    this.logger.log(`Broadcasting to chainId ${chainId}, rawTx length: ${rawTxHex?.length}`);
-    const result = await this.rpcCallWithRetry<string>('eth_sendRawTransaction', [rawTxHex], chainId);
+    this.logger.log(
+      `Broadcasting to chainId ${chainId}, rawTx length: ${rawTxHex?.length}`,
+    );
+    const result = await this.rpcCallWithRetry<string>(
+      'eth_sendRawTransaction',
+      [rawTxHex],
+      chainId,
+    );
     this.logger.log(`Broadcast result: ${result}`);
     return result;
   }
@@ -187,9 +192,15 @@ export class GasService {
     return {
       transactionHash: raw.transactionHash as string,
       blockNumber: Number(raw.blockNumber),
-      status: typeof raw.status === 'string' ? parseInt(raw.status, 16) : Number(raw.status),
+      status:
+        typeof raw.status === 'string'
+          ? parseInt(raw.status, 16)
+          : Number(raw.status),
       gasUsed: raw.gasUsed != null ? String(raw.gasUsed) : undefined,
-      effectiveGasPrice: raw.effectiveGasPrice != null ? String(raw.effectiveGasPrice) : undefined,
+      effectiveGasPrice:
+        raw.effectiveGasPrice != null
+          ? String(raw.effectiveGasPrice)
+          : undefined,
     };
   }
 
@@ -205,7 +216,11 @@ export class GasService {
     );
   }
 
-  async syncNonce(walletId: string, chainId: number, walletAddress: string): Promise<number> {
+  async syncNonce(
+    walletId: string,
+    chainId: number,
+    walletAddress: string,
+  ): Promise<number> {
     const result = await this.rpcCallWithRetry<string>(
       'eth_getTransactionCount',
       [walletAddress, 'pending'],
@@ -213,7 +228,9 @@ export class GasService {
     );
     const chainNonce = parseInt(result, 16);
     await this.walletNonceRepo.syncFromChain(walletId, chainId, chainNonce);
-    this.logger.log(`Synced nonce for wallet ${walletId} on chain ${chainId}: ${chainNonce}`);
+    this.logger.log(
+      `Synced nonce for wallet ${walletId} on chain ${chainId}: ${chainNonce}`,
+    );
     return chainNonce;
   }
 

@@ -21,7 +21,7 @@ export const Scopes = (...scopes: string[]) => SetMetadata(SCOPES_KEY, scopes);
 
 @Injectable()
 export class ScopesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) { }
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const required = this.reflector.getAllAndOverride<string[]>(SCOPES_KEY, [

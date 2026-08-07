@@ -19,7 +19,7 @@ export class StampVerifierGuard implements CanActivate {
   constructor(
     private readonly apiKeyRepo: ApiKeyRepository,
     private readonly reflector: Reflector,
-  ) { }
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if route is marked as public
@@ -124,7 +124,7 @@ export class StampVerifierGuard implements CanActivate {
       apiKeyId: apiKey.id,
       keyId: apiKey.key_id,
       scopes: apiKey.scopes as string[],
-    } as AuthUser;
+    };
 
     // Update last_used_at — fire and forget, must not block or fail the
     // request (docs/STAMP_AUTH.md step 6).
@@ -151,7 +151,7 @@ export class OptionalStampVerifierGuard implements CanActivate {
   constructor(
     private readonly apiKeyRepo: ApiKeyRepository,
     private readonly reflector: Reflector,
-  ) { }
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if route is marked as public (same logic as StampVerifierGuard)

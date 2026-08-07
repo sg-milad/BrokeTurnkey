@@ -134,6 +134,19 @@ export class AuthService {
     return { success: true };
   }
 
+  /**
+   * Resolves an organization ID from a raw bootstrap token by hashing it
+   * and looking up the org that stores that hash. Returns undefined if no
+   * org matches (invalid or already-consumed token).
+   */
+  async resolveOrgIdFromBootstrapToken(
+    token: string,
+  ): Promise<string | undefined> {
+    const hash = createHash('sha256').update(token).digest('hex');
+    const org = await this.orgRepo.findByBootstrapTokenHash(hash);
+    return org?.id;
+  }
+
   async validateBootstrapToken(orgId: string, token: string): Promise<boolean> {
     const org = await this.orgRepo.findById(orgId);
     if (!org || !org.bootstrap_token_hash) {
