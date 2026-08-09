@@ -9,19 +9,26 @@ import {
 } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { type organization } from '@app/db/schema/organizations';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
 import { Public, CurrentUser, Scopes } from '@app/auth';
 import { AuditLogRepository } from '@app/db/repositories';
 
 @ApiTags('organizations')
+@ApiHeader({
+  name: 'X-Stamp',
+  required: true,
+  description:
+    'Stamp authentication header: <base64url(DER-encoded ES256 signature)>.<timestamp_ms>.<key_id> ' +
+    'signing SHA-256 of `<timestamp_ms>.<base64url(SHA-256(raw body))>`. See docs/STAMP_AUTH.md.',
+})
 @Controller('organizations')
 export class OrganizationsController {
   constructor(
     private readonly organizationsService: OrganizationsService,
     private readonly auditLogRepo: AuditLogRepository,
-  ) {}
+  ) { }
 
   @Post()
   @Public()
