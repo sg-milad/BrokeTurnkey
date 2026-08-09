@@ -540,24 +540,58 @@ function makeStamp(bodyBytes, keyId) {
 > round-tripping after parsing). For GET requests with no body, sign
 > `SHA-256("")` — `base64url` is `47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU`.
 
-### Worked walkthrough (curl)
+## Recommendation
 
-The full flow from zero to a signed transaction. Steps 1–3 are one-time setup
-per organization; steps 4–6 are the recurring operational flow.
+- Every authenticated request should be signed with `X-Stamp`, except the
+  first `POST /api-keys` call for an organization when it uses
+  `X-Bootstrap-Token` instead.
+- Keep the private key local and never send it to the API. Only the public
+  key is registered on `POST /api-keys`.
+- Add `@ApiHeader({ name: 'X-Stamp', ... })` to all authenticated controllers
+  where Swagger docs are exposed. That improves developer clarity.
+- Use the helper script in development so you can generate keys and stamps
+  consistently without hand-crafting the header.
 
-#### Step 1 — Create and onboard an organization
+### Development helper
 
-Creates the organization, generates the BIP39 seed, derives the first wallet,
-and returns a one-time bootstrap token needed to register your first API key.
+A local helper is available at `scripts/stamp-helper.js`:
 
 ```bash
-API=http://localhost:3000
+# Generate a P-256 keypair for development
+pnpm stamp:helper generate-keypair ./private.pem ./public.pem
 
-curl -s -X POST $API/organizations \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "Acme Corp", "slug": "acme"}'
-# → { "id": "<org-id>", "slug": "acme", "name": "Acme Corp", "bootstrapToken": "<token>", ... }
+# Create a stamp for an HTTP request body
+pnpm stamp:helper make-stamp <key_id> ./private.pem ./payload.json
 ```
+
+`make-stamp` prints the `X-Stamp` header value. For GET requests with no body,
+use an empty file like `printf '' > /tmp/empty.json`.
+
+### Why this matters
+
+- The `X-Stamp` value proves the request body was signed by a registered key.
+- The API stores the public key; the private key stays with your client.
+- The first key registration uses `X-Bootstrap-Token`, which is a separate
+  one-time auth path and is not equivalent to `X-Stamp`.
+
+### When to use each header
+
+- `X-Bootstrap-Token`: only for the initial API key creation via
+  `POST /api-keys` when there is no existing signed key.
+- `X-Stamp`: for every subsequent authenticated API request.
+
+### Result
+
+This makes it clear in docs and developer tooling that stamps are required
+for normal API calls, while bootstrap tokens are a special one-time setup
+mechanism.
+
+-H 'Content-Type: application/json' \
+-d '{"name": "Acme Corp", "slug": "acme"}'
+
+# → { "id": "<org-id>", "slug": "acme", "name": "Acme Corp", "bootstrapToken": "<token>", ... }
+
+````
 
 Save the returned `id` as `ORG_ID` and `bootstrapToken` — it is shown exactly
 once and cleared after first use.
@@ -572,7 +606,7 @@ openssl ecparam -name prime256v1 -genkey -noout -out private.pem
 
 # Extract public key
 openssl ec -in private.pem -pubout -out public.pem
-```
+````
 
 The public key must be sent as a JSON string with `\n` for newlines. Print it
 in the right format:
