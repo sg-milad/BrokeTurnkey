@@ -215,7 +215,7 @@ The Go crypto service does **not** self-rotate the SecretID. It is valid for
 before the TTL expires (full procedure in `docs/VAULT_INIT.md`):
 
 ```bash
-source .env.vault
+source .env
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 # then update VAULT_SECRET_ID in .env and restart the crypto container

@@ -21,8 +21,8 @@ do on restart is **unseal** — not re-init.
 - [ ] `docker compose up -d` has been run (add `-f docker-compose.dev.yml`
       if you need host access to ports 8200/5432)
 - [ ] All containers show `Up` in `docker compose ps`
-- [ ] `.env.vault` does NOT yet exist (or has been emptied)
-- [ ] `.gitignore` contains `.env.vault`
+- [ ] `.env` does NOT yet exist (or has been emptied)
+- [ ] `.gitignore` contains `.env`
 
 ---
 
@@ -55,10 +55,10 @@ docker exec walletmvp-vault vault operator init \
 
 This prints **3 unseal keys** and **1 root token**. You will never see these again.
 
-Copy the output immediately into `.env.vault`:
+Copy the output immediately into `.env`:
 
 ```bash
-# .env.vault — DO NOT COMMIT THIS FILE
+# .env — DO NOT COMMIT THIS FILE
 VAULT_ADDR=http://localhost:8200
 VAULT_ROOT_TOKEN=hvs.REPLACE_ME
 VAULT_UNSEAL_KEY_1=REPLACE_ME
@@ -74,7 +74,7 @@ VAULT_UNSEAL_KEY_3=REPLACE_ME
 ## Step 3 — Unseal Vault
 
 ```bash
-source .env.vault
+source .env
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_1"
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_2"
 ```
@@ -91,7 +91,7 @@ docker exec walletmvp-vault vault status
 ## Step 4 — Authenticate as root (this session only)
 
 ```bash
-source .env.vault
+source .env
 docker exec -it -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault sh
 # You are now inside the container with root Vault access
 # Run vault commands freely, then type 'exit' when done
@@ -205,7 +205,7 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 ## Done checklist
 
 ```bash
-source .env.vault
+source .env
 
 # 1. Status
 docker exec walletmvp-vault vault status
@@ -249,7 +249,7 @@ Vault comes up sealed after every container restart. Run:
 bash scripts/unseal.sh
 ```
 
-This sources `.env.vault` and submits keys 1 and 2 automatically.
+This sources `.env` and submits keys 1 and 2 automatically.
 
 ---
 
@@ -259,7 +259,7 @@ The AppRole SecretID must be rotated manually before its 30-day TTL expires.
 To rotate it, generate a new one and update the Go service:
 
 ```bash
-source .env.vault
+source .env
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
@@ -270,11 +270,11 @@ Then update `VAULT_SECRET_ID` in `.env` and restart the crypto container.
 
 ## Key storage reference
 
-| Key              | Where to store                                              |
-| ---------------- | ----------------------------------------------------------- |
-| Unseal Key 1     | `.env.vault` (dev only) / primary password manager          |
-| Unseal Key 2     | `.env.vault` (dev only) / secondary password manager        |
-| Unseal Key 3     | **Not in `.env.vault`** — printed backup or offline storage |
-| Root Token       | `.env.vault` (dev only) — never in application code         |
-| AppRole RoleID   | `.env` — not secret                                         |
-| AppRole SecretID | `.env` — rotate manually every 30 days                      |
+| Key              | Where to store                                        |
+| ---------------- | ----------------------------------------------------- |
+| Unseal Key 1     | `.env` (dev only) / primary password manager          |
+| Unseal Key 2     | `.env` (dev only) / secondary password manager        |
+| Unseal Key 3     | **Not in `.env`** — printed backup or offline storage |
+| Root Token       | `.env` (dev only) — never in application code         |
+| AppRole RoleID   | `.env` — not secret                                   |
+| AppRole SecretID | `.env` — rotate manually every 30 days                |

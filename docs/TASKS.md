@@ -14,11 +14,11 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 - Docker Compose with four services: `vault`, `postgres`, `crypto`, `api` on a shared internal network (`walletmvp-network`)
 - Persistent named volumes for Vault data and Postgres data
-- Vault initialised with 3 Shamir unseal shares, threshold 2. Unseal keys stored in `.env.vault` (not committed). Transit engine enabled. `wallet-dek` key ring created with `exportable=false` and `allow_plaintext_backup=false`. Audit log enabled to `/vault/logs/audit.log`
+- Vault initialised with 3 Shamir unseal shares, threshold 2. Unseal keys stored in `.env` (not committed). Transit engine enabled. `wallet-dek` key ring created with `exportable=false` and `allow_plaintext_backup=false`. Audit log enabled to `/vault/logs/audit.log`
 - PostgreSQL schema deployed via Drizzle ORM (`pnpm db:push`). Nine tables: `organizations`, `users`, `api_keys`, `organization_seeds`, `wallets`, `signing_requests`, `wallet_nonces`, `policies`, `audit_log`
 - NestJS monorepo scaffold: single root `package.json`, libs directory, `apps/api` entry point
 - Go crypto service container: multi-stage Docker build, non-root user, internal port only, `GET /health` returns 200
-- `scripts/unseal.sh` — sources `.env.vault`, submits keys 1 and 2 automatically on restart
+- `scripts/unseal.sh` — sources `.env`, submits keys 1 and 2 automatically on restart
 
 **Done when:** `docker compose up -d` starts all four containers without errors. `GET /health` on the Go service returns 200. Vault status shows `Sealed: false`.
 

@@ -91,7 +91,7 @@ never see them again.
 ### Step 3 — Unseal
 
 ```bash
-source .env.vault
+source .env
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_1"
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_2"
 ```
@@ -157,18 +157,21 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 ```
 
 Read the RoleID (not sensitive — safe to store in config):
+
 ```bash
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault read auth/approle/role/wallet-signer/role-id
 ```
 
 Generate the first SecretID (treat like a password):
+
 ```bash
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
 Add to the Go crypto service's env:
+
 ```bash
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
@@ -215,7 +218,7 @@ unlimited uses (`secret_id_num_uses=0`). It is **not** self-rotated by the Go
 service — you must rotate it before the TTL expires:
 
 ```bash
-source .env.vault
+source .env
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
@@ -228,7 +231,7 @@ The full procedure is in `docs/VAULT_INIT.md` (section "SecretID Rotation").
 > removed — the current design trades a shorter blast radius for much simpler
 > operations. If you want the stronger posture back, restore the self-rotation
 > loop in `cmd/crypto/vault.go` and set `secret_id_ttl=10m,
-> secret_id_num_uses=1`.
+secret_id_num_uses=1`.
 
 ### At wallet creation
 
