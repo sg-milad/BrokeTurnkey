@@ -19,7 +19,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./apps/wallet2/test/jest-e2e.json",
     "db:push": "TS_NODE_PROJECT=drizzle.tsconfig.json drizzle-kit push",
-    "db:studio": "TS_NODE_PROJECT=drizzle.tsconfig.json drizzle-kit studio --config drizzle.config.ts"
+    "db:studio": "TS_NODE_PROJECT=drizzle.tsconfig.json drizzle-kit studio --config drizzle.config.ts",
+    "stamp:helper": "node scripts/stamp-helper.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

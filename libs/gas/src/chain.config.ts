@@ -21,6 +21,15 @@ export interface ChainConfig {
  * To add a new chain:
  *   1. Add an entry here with the envKey
  *   2. Set RPC_<ENVKEY>_1 (and optionally _2, _3) in your .env
+ * for example for Ethereum Mainnet:
+ *   1. Add entry:
+ *      1: { chainId: 1, name: 'Ethereum', envKey: 'ETH_MAINNET', ... }
+ *   2. Set env var:
+ *      RPC_ETH_MAINNET_1=https://mainnet.infura.io/v3/YOUR-PROJECT-ID
+ *  
+ *
+ *
+ * The ChainService will read the env vars and register the chain at runtime.
  */
 export const SUPPORTED_CHAINS: Record<
   number,
