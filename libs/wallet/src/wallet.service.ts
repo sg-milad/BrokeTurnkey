@@ -273,31 +273,15 @@ export class WalletService {
     const maxPriorityFeePerGas =
       req.maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
 
-    // 5. Atomically reserve (consume) the next nonce. The reservation is
-    // permanent — concurrent requests can never observe the same nonce.
-    const nonce = await this.gasService.reserveNonce(walletId, req.chainId);
-
-    const txFields: TxFields = {
-      chainId: req.chainId,
-      nonce,
-      to: req.to,
-      value: req.value,
-      gasLimit,
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      data: req.data,
-    };
-
-    // 6. Create the pending signing_request. The idempotency_key unique index
-    // arbitrates concurrent duplicate submissions: the loser of the race
-    // either returns the winner's request or reuses a previously failed row.
+    // 5. Create the pending signing_request before reserving a nonce.
+    // This prevents races where duplicate requests both reserve a nonce and
+    // waste one before the idempotency constraint can fail the second request.
     let signingRequest;
     try {
       signingRequest = await this.signingRequestRepo.create({
         org_id: orgId,
         wallet_id: walletId,
         chain_id: req.chainId,
-        tx_payload: JSON.parse(JSON.stringify(txFields)),
         status: 'pending',
         idempotency_key: idempotencyKey,
       });
@@ -321,14 +305,33 @@ export class WalletService {
       );
       await this.signingRequestRepo.update(raced.id, {
         status: 'pending',
-        tx_payload: JSON.parse(JSON.stringify(txFields)),
+        tx_payload: undefined,
         tx_hash: undefined,
         signature: undefined,
         failure_reason: undefined,
         error_type: undefined,
       });
-      signingRequest = { ...raced, status: 'pending', tx_payload: txFields };
+      signingRequest = { ...raced, status: 'pending', tx_payload: undefined };
     }
+
+    // 6. Atomically reserve (consume) the next nonce. The reservation is
+    // permanent — concurrent requests can never observe the same nonce.
+    const nonce = await this.gasService.reserveNonce(walletId, req.chainId);
+
+    const txFields: TxFields = {
+      chainId: req.chainId,
+      nonce,
+      to: req.to,
+      value: req.value,
+      gasLimit,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      data: req.data,
+    };
+
+    await this.signingRequestRepo.update(signingRequest.id, {
+      tx_payload: JSON.parse(JSON.stringify(txFields)),
+    });
 
     // 7. Sign via Go sidecar
     let signResult: Awaited<ReturnType<CryptoClientService['signTransaction']>>;
@@ -355,6 +358,9 @@ export class WalletService {
         failure_reason: (err as Error).message,
         error_type: errorType,
       });
+      // A signer failure happens before a raw transaction can reach the RPC.
+      // Reclaim only the sequence tail; concurrent reservations remain safe.
+      await this.gasService.releaseNonce(walletId, req.chainId, nonce);
       throw new HttpException(
         `Transaction signing failed (${errorType})`,
         errorType === 'permanent'

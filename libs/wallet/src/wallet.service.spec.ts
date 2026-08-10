@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException, NotFoundException, HttpException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  HttpException,
+} from '@nestjs/common';
 import { WalletService, SignRequest } from './wallet.service';
 import { CryptoClientService } from '@app/crypto-client';
 import { GasService } from '@app/gas';
@@ -47,7 +52,16 @@ const signedRequest = {
   wallet_id: 'wallet-1',
   chain_id: 1,
   tx_hash: '0xhash',
-  tx_payload: { nonce: 7, chainId: 1, to: '0xto', value: '1', gasLimit: 21000, maxFeePerGas: '2', maxPriorityFeePerGas: '1', data: '0x' },
+  tx_payload: {
+    nonce: 7,
+    chainId: 1,
+    to: '0xto',
+    value: '1',
+    gasLimit: 21000,
+    maxFeePerGas: '2',
+    maxPriorityFeePerGas: '1',
+    data: '0x',
+  },
   signature: '0xsig',
   status: 'signed',
   failure_reason: null,
@@ -65,16 +79,29 @@ const signedRequest = {
 
 describe('WalletService', () => {
   let service: WalletService;
-  let cryptoClient: jest.Mocked<Pick<CryptoClientService, 'createWallet' | 'deriveWallet' | 'signTransaction'>>;
+  let cryptoClient: jest.Mocked<
+    Pick<
+      CryptoClientService,
+      'createWallet' | 'deriveWallet' | 'signTransaction'
+    >
+  >;
   let gasService: jest.Mocked<{
     estimateFees: jest.Mock;
     reserveNonce: jest.Mock;
+    releaseNonce: jest.Mock;
     broadcastTransaction: jest.Mock;
     syncNonce: jest.Mock;
   }>;
   let policyService: jest.Mocked<Pick<PolicyService, 'evaluate'>>;
-  let orgSeedRepo: jest.Mocked<Pick<organizationSeedRepository, 'findByOrgId' | 'create'>>;
-  let walletRepo: jest.Mocked<Pick<WalletRepository, 'create' | 'findByOrgId' | 'findById' | 'countByOrgId'>>;
+  let orgSeedRepo: jest.Mocked<
+    Pick<organizationSeedRepository, 'findByOrgId' | 'create'>
+  >;
+  let walletRepo: jest.Mocked<
+    Pick<
+      WalletRepository,
+      'create' | 'findByOrgId' | 'findById' | 'countByOrgId'
+    >
+  >;
   let signingRequestRepo: jest.Mocked<{
     findByOrgId: jest.Mock;
     findByWalletId: jest.Mock;
@@ -103,15 +130,24 @@ describe('WalletService', () => {
           useValue: {
             estimateFees: jest.fn(),
             reserveNonce: jest.fn(),
+            releaseNonce: jest.fn(),
             broadcastTransaction: jest.fn(),
             syncNonce: jest.fn(),
           },
         },
         { provide: PolicyService, useValue: { evaluate: jest.fn() } },
-        { provide: organizationSeedRepository, useValue: { findByOrgId: jest.fn(), create: jest.fn() } },
+        {
+          provide: organizationSeedRepository,
+          useValue: { findByOrgId: jest.fn(), create: jest.fn() },
+        },
         {
           provide: WalletRepository,
-          useValue: { create: jest.fn(), findByOrgId: jest.fn(), findById: jest.fn(), countByOrgId: jest.fn() },
+          useValue: {
+            create: jest.fn(),
+            findByOrgId: jest.fn(),
+            findById: jest.fn(),
+            countByOrgId: jest.fn(),
+          },
         },
         {
           provide: SigningRequestRepository,
@@ -124,7 +160,10 @@ describe('WalletService', () => {
             update: jest.fn(),
           },
         },
-        { provide: AuditLogRepository, useValue: { create: jest.fn().mockResolvedValue({}) } },
+        {
+          provide: AuditLogRepository,
+          useValue: { create: jest.fn().mockResolvedValue({}) },
+        },
         { provide: UserRepository, useValue: { findById: jest.fn() } },
       ],
     }).compile();
@@ -141,9 +180,17 @@ describe('WalletService', () => {
 
     orgSeedRepo.findByOrgId.mockResolvedValue(seedRow as any);
     walletRepo.findById.mockResolvedValue(wallet as any);
-    policyService.evaluate.mockResolvedValue({ decision: 'allow', reason: undefined } as any);
-    gasService.estimateFees.mockResolvedValue({ gasLimit: 21000, maxFeePerGas: '2', maxPriorityFeePerGas: '1' });
+    policyService.evaluate.mockResolvedValue({
+      decision: 'allow',
+      reason: undefined,
+    } as any);
+    gasService.estimateFees.mockResolvedValue({
+      gasLimit: 21000,
+      maxFeePerGas: '2',
+      maxPriorityFeePerGas: '1',
+    });
     gasService.reserveNonce.mockResolvedValue(7);
+    gasService.releaseNonce.mockResolvedValue(true);
     cryptoClient.signTransaction.mockResolvedValue({
       rawTx: '0xrawtx',
       txHash: '0xhash',
@@ -187,12 +234,18 @@ describe('WalletService', () => {
         derivation_path: "m/44'/60'/0'/0/0",
       });
       expect(auditLogRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ org_id: 'org-1', event: 'org_onboarded', status: 'success' }),
+        expect.objectContaining({
+          org_id: 'org-1',
+          event: 'org_onboarded',
+          status: 'success',
+        }),
       );
     });
 
     it('throws when org already onboarded', async () => {
-      await expect(service.onBoardOrganization('org-1')).rejects.toThrow('organization already onboarded');
+      await expect(service.onBoardOrganization('org-1')).rejects.toThrow(
+        'organization already onboarded',
+      );
       expect(cryptoClient.createWallet).not.toHaveBeenCalled();
     });
   });
@@ -209,25 +262,44 @@ describe('WalletService', () => {
       const result = await service.deriveWallet('org-1', undefined, 'Second');
 
       expect(result).toEqual({ walletId: 'wallet-2', address: '0xdef' });
-      expect(cryptoClient.deriveWallet).toHaveBeenCalledWith('enc-seed', 'nonce-1', 'enc-dek', 1);
+      expect(cryptoClient.deriveWallet).toHaveBeenCalledWith(
+        'enc-seed',
+        'nonce-1',
+        'enc-dek',
+        1,
+      );
       expect(walletRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ org_id: 'org-1', user_id: undefined, label: 'Second', chain_id: 1 }),
+        expect.objectContaining({
+          org_id: 'org-1',
+          user_id: undefined,
+          label: 'Second',
+          chain_id: 1,
+        }),
       );
     });
 
     it('rejects when org not onboarded', async () => {
       orgSeedRepo.findByOrgId.mockResolvedValue(undefined);
-      await expect(service.deriveWallet('org-1', undefined, 'X')).rejects.toThrow(BadRequestException);
+      await expect(
+        service.deriveWallet('org-1', undefined, 'X'),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects unknown user', async () => {
       userRepo.findById.mockResolvedValue(undefined);
-      await expect(service.deriveWallet('org-1', 'user-99', 'X')).rejects.toThrow(NotFoundException);
+      await expect(
+        service.deriveWallet('org-1', 'user-99', 'X'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('rejects user from another org', async () => {
-      userRepo.findById.mockResolvedValue({ id: 'user-1', org_id: 'org-2' } as any);
-      await expect(service.deriveWallet('org-1', 'user-1', 'X')).rejects.toThrow(BadRequestException);
+      userRepo.findById.mockResolvedValue({
+        id: 'user-1',
+        org_id: 'org-2',
+      } as any);
+      await expect(
+        service.deriveWallet('org-1', 'user-1', 'X'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -254,44 +326,70 @@ describe('WalletService', () => {
 
     it('getWalletById throws when wallet missing', async () => {
       walletRepo.findById.mockResolvedValue(undefined);
-      await expect(service.getWalletById('wallet-1', 'org-1')).rejects.toThrow(NotFoundException);
+      await expect(service.getWalletById('wallet-1', 'org-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('getWalletById throws when wallet belongs to another org', async () => {
-      walletRepo.findById.mockResolvedValue({ ...wallet, org_id: 'org-2' } as any);
-      await expect(service.getWalletById('wallet-1', 'org-1')).rejects.toThrow(BadRequestException);
+      walletRepo.findById.mockResolvedValue({
+        ...wallet,
+        org_id: 'org-2',
+      } as any);
+      await expect(service.getWalletById('wallet-1', 'org-1')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
   describe('listSigningRequestsByWalletId', () => {
     it('returns requests for owner org', async () => {
       signingRequestRepo.findByWalletId.mockResolvedValue([signedRequest]);
-      const result = await service.listSigningRequestsByWalletId('wallet-1', 'org-1');
+      const result = await service.listSigningRequestsByWalletId(
+        'wallet-1',
+        'org-1',
+      );
       expect(result).toHaveLength(1);
       expect(result[0].txHash).toBe('0xhash');
     });
 
     it('rejects wallet from another org', async () => {
-      walletRepo.findById.mockResolvedValue({ ...wallet, org_id: 'org-2' } as any);
-      await expect(service.listSigningRequestsByWalletId('wallet-1', 'org-1')).rejects.toThrow(BadRequestException);
+      walletRepo.findById.mockResolvedValue({
+        ...wallet,
+        org_id: 'org-2',
+      } as any);
+      await expect(
+        service.listSigningRequestsByWalletId('wallet-1', 'org-1'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('getSigningRequestById', () => {
     it('returns mapped request', async () => {
       signingRequestRepo.findById.mockResolvedValue(signedRequest);
-      const result = await service.getSigningRequestById('org-1', 'wallet-1', 'req-1');
+      const result = await service.getSigningRequestById(
+        'org-1',
+        'wallet-1',
+        'req-1',
+      );
       expect(result.id).toBe('req-1');
     });
 
     it('throws when request missing', async () => {
       signingRequestRepo.findById.mockResolvedValue(undefined);
-      await expect(service.getSigningRequestById('org-1', 'wallet-1', 'req-1')).rejects.toThrow(NotFoundException);
+      await expect(
+        service.getSigningRequestById('org-1', 'wallet-1', 'req-1'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('throws when request belongs to another wallet', async () => {
-      signingRequestRepo.findById.mockResolvedValue({ ...signedRequest, wallet_id: 'wallet-2' });
-      await expect(service.getSigningRequestById('org-1', 'wallet-1', 'req-1')).rejects.toThrow(BadRequestException);
+      signingRequestRepo.findById.mockResolvedValue({
+        ...signedRequest,
+        wallet_id: 'wallet-2',
+      });
+      await expect(
+        service.getSigningRequestById('org-1', 'wallet-1', 'req-1'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -310,13 +408,21 @@ describe('WalletService', () => {
         nonce: 7,
         idempotencyKey: expect.any(String),
       });
-      expect(gasService.broadcastTransaction).toHaveBeenCalledWith('0xrawtx', 1);
+      expect(gasService.broadcastTransaction).toHaveBeenCalledWith(
+        '0xrawtx',
+        1,
+      );
       expect(signingRequestRepo.update).toHaveBeenCalledWith(
         'req-1',
         expect.objectContaining({ status: 'broadcasted' }),
       );
       expect(auditLogRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ org_id: 'org-1', wallet_id: 'wallet-1', event: 'tx_signed', status: 'broadcasted' }),
+        expect.objectContaining({
+          org_id: 'org-1',
+          wallet_id: 'wallet-1',
+          event: 'tx_signed',
+          status: 'broadcasted',
+        }),
       );
     });
 
@@ -329,27 +435,42 @@ describe('WalletService', () => {
       expect(result.signingRequestId).toBe('req-1');
       expect(signingRequestRepo.create).not.toHaveBeenCalled();
       expect(policyService.evaluate).not.toHaveBeenCalled();
+      expect(gasService.reserveNonce).not.toHaveBeenCalled();
     });
 
     it('rejects policy deny', async () => {
-      policyService.evaluate.mockResolvedValue({ decision: 'deny', reason: 'limit' } as any);
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(ForbiddenException);
+      policyService.evaluate.mockResolvedValue({
+        decision: 'deny',
+        reason: 'limit',
+      } as any);
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(ForbiddenException);
       expect(gasService.reserveNonce).not.toHaveBeenCalled();
     });
 
     it('rejects unknown org', async () => {
       orgSeedRepo.findByOrgId.mockResolvedValue(undefined);
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects missing wallet', async () => {
       walletRepo.findById.mockResolvedValue(undefined);
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(NotFoundException);
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('rejects wallet from another org', async () => {
-      walletRepo.findById.mockResolvedValue({ ...wallet, org_id: 'org-2' } as any);
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(BadRequestException);
+      walletRepo.findById.mockResolvedValue({
+        ...wallet,
+        org_id: 'org-2',
+      } as any);
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('reuses failed row on unique-violation race', async () => {
@@ -370,22 +491,39 @@ describe('WalletService', () => {
     });
 
     it('marks failed and surfaces HttpException when signing throws', async () => {
-      cryptoClient.signTransaction.mockRejectedValue(new Error('key unreachable'));
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(HttpException);
+      cryptoClient.signTransaction.mockRejectedValue(
+        new Error('key unreachable'),
+      );
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(HttpException);
       expect(signingRequestRepo.update).toHaveBeenCalledWith(
         'req-1',
-        expect.objectContaining({ status: 'failed', error_type: expect.any(String) }),
+        expect.objectContaining({
+          status: 'failed',
+          error_type: expect.any(String),
+        }),
       );
+      expect(gasService.releaseNonce).toHaveBeenCalledWith('wallet-1', 1, 7);
     });
 
     it('marks failed and surfaces HttpException when broadcast throws', async () => {
       gasService.broadcastTransaction.mockRejectedValue(new Error('RPC down'));
-      await expect(service.requestSign('org-1', 'wallet-1', signReq)).rejects.toThrow(HttpException);
+      await expect(
+        service.requestSign('org-1', 'wallet-1', signReq),
+      ).rejects.toThrow(HttpException);
       expect(signingRequestRepo.update).toHaveBeenCalledWith(
         'req-1',
-        expect.objectContaining({ status: 'failed', failure_reason: expect.stringContaining('broadcast failed') }),
+        expect.objectContaining({
+          status: 'failed',
+          failure_reason: expect.stringContaining('broadcast failed'),
+        }),
       );
-      expect(gasService.syncNonce).toHaveBeenCalledWith('wallet-1', 1, wallet.address);
+      expect(gasService.syncNonce).toHaveBeenCalledWith(
+        'wallet-1',
+        1,
+        wallet.address,
+      );
     });
   });
 });
