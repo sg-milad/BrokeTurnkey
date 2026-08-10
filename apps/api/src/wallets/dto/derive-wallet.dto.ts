@@ -28,6 +28,6 @@ export class DeriveWalletDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(999999)
+  @Max(99999999)
   chainId?: number;
 }
