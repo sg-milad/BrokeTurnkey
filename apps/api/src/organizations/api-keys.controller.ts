@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Req,
-  UseGuards,
   HttpCode,
 } from '@nestjs/common';
 import {
@@ -21,10 +20,9 @@ import {
 } from '@nestjs/swagger';
 import {
   AuthService,
-  Public,
+  OptionalStamp,
   Scopes,
   CurrentUser,
-  OptionalStampVerifierGuard,
   type AuthUser,
 } from '@app/auth';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
@@ -42,8 +40,7 @@ export class ApiKeysController {
   constructor(private readonly authService: AuthService) {}
 
   @Post()
-  @Public()
-  @UseGuards(OptionalStampVerifierGuard)
+  @OptionalStamp()
   @HttpCode(201)
   @ApiOperation({
     summary: 'Register a new API key',
