@@ -228,12 +228,13 @@ error. No cryptographic operations are performed.
 The `GasService` (`@app/gas`) handles transaction assembly:
 
 - Estimates gas via `eth_estimateGas` on the configured RPC provider
-- **Reserves the nonce atomically**: a single `INSERT ... ON CONFLICT`
-  upsert increments the per-wallet counter and returns the reserved value.
-  The reservation is **permanent** — concurrent requests can never observe
-  the same nonce, and a failed broadcast leaves a gap (Ethereum tolerates
-  gaps; the guarantee that matters is that a nonce is never used twice).
-  Clients must not supply a nonce.
+  - **Reserves the nonce atomically**: a single `INSERT ... ON CONFLICT`
+    upsert increments the per-wallet counter and returns the reserved value.
+    A signing failure before any broadcast returns the nonce only if it is
+    still the most recent reservation. Once a broadcast is attempted, the
+    reservation is permanent because RPC failure may still mean the network
+    accepted the transaction; gaps are safe, but reusing that nonce is not.
+    Clients must not supply a nonce.
 - Assembles the complete raw transaction fields
 
 #### Phase 3: Cryptographic Signing

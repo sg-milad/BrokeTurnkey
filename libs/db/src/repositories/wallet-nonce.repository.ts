@@ -36,6 +36,24 @@ export class WalletNonceRepository implements IWalletNonceRepository {
     return Number(row.reserved);
   }
 
+  async release(
+    walletId: string,
+    chainId: number,
+    nonce: number,
+  ): Promise<boolean> {
+    // Only roll back the tail of the sequence. If another request has already
+    // reserved a nonce, rewinding would make that later request reusable.
+    const result = await this.db.execute(
+      sql`UPDATE wallet_nonces
+          SET nonce = ${nonce}, updated_at = now()
+          WHERE wallet_id = ${walletId}
+            AND chain_id = ${chainId}
+            AND nonce = ${nonce + 1}`,
+    );
+
+    return (result.rowCount ?? 0) === 1;
+  }
+
   async syncFromChain(
     walletId: string,
     chainId: number,

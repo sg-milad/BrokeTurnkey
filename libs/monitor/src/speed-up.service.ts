@@ -2,8 +2,22 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SigningRequest } from '@app/db/schema/signing-requests';
 import { SigningRequestRepository } from '@app/db/repositories/signing-request.repository';
+import { WalletRepository } from '@app/db/repositories/wallet.repository';
+import { organizationSeedRepository } from '@app/db/repositories/organization-seed.repository';
 import { GasService } from '@app/gas';
 import { CryptoClientService } from '@app/crypto-client';
+import { TxFields } from '@app/crypto-client/interfaces/crypto-client.interfaces';
+
+interface SpeedUpTxPayload {
+  nonce: number;
+  chainId: number;
+  to: string;
+  value: string;
+  data: string;
+  gasLimit: number;
+  maxFeePerGas: string;
+  maxPriorityFeePerGas: string;
+}
 
 @Injectable()
 export class SpeedUpService {
@@ -13,6 +27,8 @@ export class SpeedUpService {
 
   constructor(
     private readonly signingRequestRepo: SigningRequestRepository,
+    private readonly walletRepo: WalletRepository,
+    private readonly orgSeedRepo: organizationSeedRepository,
     private readonly gasService: GasService,
     private readonly cryptoClient: CryptoClientService,
     private readonly config: ConfigService,
@@ -50,7 +66,7 @@ export class SpeedUpService {
     // ---------------------------------------------------------------
     // 2.  Rebuild the tx with bumped fees and the SAME nonce
     // ---------------------------------------------------------------
-    const txPayload = row.tx_payload as Record<string, string> | null;
+    const txPayload = row.tx_payload as SpeedUpTxPayload | null;
     if (!txPayload) {
       this.logger.error(
         `Speed-up: signing_request ${row.id} has no tx_payload — cannot rebuild`,
@@ -66,6 +82,32 @@ export class SpeedUpService {
     const nonce = Number(txPayload.nonce);
     const chainId = row.chain_id;
 
+    const wallet = await this.walletRepo.findById(row.wallet_id);
+    if (!wallet) {
+      this.logger.error(
+        `Speed-up: wallet ${row.wallet_id} not found for signing_request ${row.id}`,
+      );
+      await this.signingRequestRepo.update(row.id, {
+        status: 'failed',
+        error_type: 'permanent',
+        failure_reason: 'wallet metadata unavailable for speed-up',
+      });
+      return;
+    }
+
+    const seedRow = await this.orgSeedRepo.findByOrgId(wallet.org_id);
+    if (!seedRow) {
+      this.logger.error(
+        `Speed-up: organization seed for org ${wallet.org_id} not found for signing_request ${row.id}`,
+      );
+      await this.signingRequestRepo.update(row.id, {
+        status: 'failed',
+        error_type: 'permanent',
+        failure_reason: 'organization seed unavailable for speed-up',
+      });
+      return;
+    }
+
     // Fetch fresh fee data so we are not using stale values
     const feeEstimate = await this.gasService.estimateFees(
       txPayload.to,
@@ -74,15 +116,22 @@ export class SpeedUpService {
       chainId,
     );
 
-    // Apply the bump multiplier on top of the fresh estimate
-    const bumpedMaxFee = BigInt(feeEstimate.maxFeePerGas);
-    const bumpedMaxPriority = BigInt(feeEstimate.maxPriorityFeePerGas);
+    // Apply the bump multiplier on top of the fresh estimate.
+    // Use integer math to avoid floating-point imprecision on large gas values.
+    const multiplierNumerator = BigInt(Math.round(this.gasBumpMultiplier * 100));
+    const multiplierDenominator = 100n;
+    const bumpedMaxFee =
+      (BigInt(feeEstimate.maxFeePerGas) * multiplierNumerator + multiplierDenominator - 1n) /
+      multiplierDenominator;
+    const bumpedMaxPriority =
+      (BigInt(feeEstimate.maxPriorityFeePerGas) * multiplierNumerator + multiplierDenominator - 1n) /
+      multiplierDenominator;
     const bumpedGasLimit = feeEstimate.gasLimit;
 
     this.logger.log(
       `Speed-up: rebuilding signing_request ${row.id} ` +
-        `(attempt ${attempts + 1}/${this.maxSpeedUpAttempts}) ` +
-        `nonce=${nonce} chainId=${chainId}`,
+      `(attempt ${attempts + 1}/${this.maxSpeedUpAttempts}) ` +
+      `nonce=${nonce} chainId=${chainId} maxFeePerGas=${bumpedMaxFee} maxPriorityFeePerGas=${bumpedMaxPriority}`,
     );
 
     // ---------------------------------------------------------------
@@ -92,10 +141,10 @@ export class SpeedUpService {
     let txHash: string;
     try {
       const result = await this.cryptoClient.signTransaction(
-        txPayload.encryptedSeed,
-        txPayload.seedNonce,
-        txPayload.encryptedDek,
-        txPayload.derivationPath,
+        seedRow.encrypted_seed,
+        seedRow.seed_nonce,
+        seedRow.encrypted_dek,
+        wallet.derivation_path,
         {
           chainId,
           nonce,
@@ -105,7 +154,7 @@ export class SpeedUpService {
           gasLimit: bumpedGasLimit,
           maxFeePerGas: bumpedMaxFee.toString(),
           maxPriorityFeePerGas: bumpedMaxPriority.toString(),
-        },
+        } as TxFields,
       );
       rawTx = result.rawTx;
       txHash = result.txHash;
@@ -156,6 +205,7 @@ export class SpeedUpService {
       original_tx_hash: originalTxHash,
       speed_up_attempts: attempts + 1,
       last_speed_up_at: new Date(),
+      broadcasted_at: new Date(),
       status: 'broadcasted',
       // Clear stale confirmation fields that may have been set by a
       // previous speed-up cycle
@@ -166,7 +216,7 @@ export class SpeedUpService {
 
     this.logger.log(
       `Speed-up: replacement tx ${txHash} broadcast for signing_request ${row.id} ` +
-        `(attempt ${attempts + 1}, original_tx_hash=${originalTxHash})`,
+      `(attempt ${attempts + 1}, original_tx_hash=${originalTxHash})`,
     );
   }
 }

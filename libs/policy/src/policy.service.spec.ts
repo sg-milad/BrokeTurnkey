@@ -20,6 +20,8 @@ describe('PolicyService', () => {
       name: `policy-${id}`,
       rule_type: ruleType,
       rule_config: ruleConfig,
+      applies_to: 'all',
+      target_id: null,
       status: 'active',
       created_at: new Date('2024-01-01T00:00:00Z'),
       updated_at: new Date('2024-01-01T00:00:00Z'),
@@ -49,15 +51,15 @@ describe('PolicyService', () => {
     it('adds orgId and delegates to repository', async () => {
       const data = {
         name: 'Blocklist',
-        rule_type: 'address_blocklist',
-        rule_config: {},
+        rule_type: 'spend_limit',
+        rule_config: { max_amount_wei: '1' },
       };
       const created = { ...data, org_id: 'org-1' };
       policyRepo.create.mockResolvedValue(created);
 
-      await expect(
-        service.createPolicy('org-1', data as any),
-      ).resolves.toEqual(created);
+      await expect(service.createPolicy('org-1', data as any)).resolves.toEqual(
+        created,
+      );
       expect(policyRepo.create).toHaveBeenCalledWith({
         ...data,
         org_id: 'org-1',
@@ -70,9 +72,7 @@ describe('PolicyService', () => {
       const policies = [activePolicy('p-1', 'spend_limit', {})];
       policyRepo.findByOrgId.mockResolvedValue(policies);
 
-      await expect(service.listPolicies('org-1')).resolves.toEqual(
-        policies,
-      );
+      await expect(service.listPolicies('org-1')).resolves.toEqual(policies);
       expect(policyRepo.findByOrgId).toHaveBeenCalledWith('org-1', 'active');
     });
   });
@@ -131,6 +131,19 @@ describe('PolicyService', () => {
   describe('evaluate', () => {
     const tx = { to: '0xabc', value: '1000', chainId: 1 };
 
+    it('skips a wallet-targeted policy for a different wallet', async () => {
+      const policy = activePolicy('p-target', 'address_blocklist', {
+        addresses: ['0xabc'],
+      });
+      policy.applies_to = 'wallet';
+      policy.target_id = 'w-target';
+      policyRepo.findByOrgId.mockResolvedValue([policy]);
+
+      await expect(service.evaluate('org-1', 'w-other', tx)).resolves.toEqual({
+        decision: 'allow',
+      });
+    });
+
     it('denies when recipient is on the address blocklist', async () => {
       policyRepo.findByOrgId.mockResolvedValue([
         activePolicy('p-1', 'address_blocklist', {
@@ -138,9 +151,7 @@ describe('PolicyService', () => {
         }),
       ]);
 
-      await expect(
-        service.evaluate('org-1', 'w-1', tx),
-      ).resolves.toEqual({
+      await expect(service.evaluate('org-1', 'w-1', tx)).resolves.toEqual({
         decision: 'deny',
         reason: 'Recipient address 0xabc is on the blocklist',
       });

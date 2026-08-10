@@ -103,6 +103,15 @@ export class GasService {
     return this.walletNonceRepo.reserve(walletId, chainId);
   }
 
+  /** Releases a nonce only if it is still the newest reservation. */
+  async releaseNonce(
+    walletId: string,
+    chainId: number,
+    nonce: number,
+  ): Promise<boolean> {
+    return this.walletNonceRepo.release(walletId, chainId, nonce);
+  }
+
   // -------------------------------------------------------------------------
   // Broadcast with retry and failover
   // -------------------------------------------------------------------------
