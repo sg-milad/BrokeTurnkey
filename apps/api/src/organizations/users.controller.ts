@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
 import { UserService } from '@app/users';
 import { Scopes, CurrentUser } from '@app/auth';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @ApiTags('users')
 @ApiHeader({
@@ -21,7 +22,7 @@ import { Scopes, CurrentUser } from '@app/auth';
 })
 @Controller('users')
 export class UsersController {
-  constructor(private readonly userService: UserService) { }
+  constructor(private readonly userService: UserService) {}
 
   @Post()
   @Scopes('key:write')
@@ -30,7 +31,7 @@ export class UsersController {
   @ApiResponse({ status: 201, description: 'User created.' })
   async createUser(
     @CurrentUser('orgId') orgId: string,
-    @Body() body: { externalId: string; email?: string; role?: string },
+    @Body() body: CreateUserDto,
   ) {
     return this.userService.createUser(orgId, body);
   }

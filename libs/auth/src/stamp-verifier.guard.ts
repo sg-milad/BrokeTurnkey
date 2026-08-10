@@ -7,7 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ApiKeyRepository } from '@app/db/repositories';
 import { createHash, verify } from 'crypto';
-import { IS_PUBLIC_KEY } from './public.decorator';
+import { IS_PUBLIC_KEY, OPTIONAL_STAMP_KEY } from './public.decorator';
 
 // Request body this size or larger is rejected by the body parser before the
 // guard runs (express.json `limit` option). Keeping it in sync with main.ts.
@@ -32,7 +32,13 @@ export class StampVerifierGuard implements CanActivate {
     const headers = request.headers as Record<string, string>;
     const stamp = headers['x-stamp'];
 
+    const optionalStamp = this.reflector.getAllAndOverride<boolean>(
+      OPTIONAL_STAMP_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
     if (!stamp) {
+      if (optionalStamp) return true;
       throw new UnauthorizedException('Missing X-Stamp header');
     }
 

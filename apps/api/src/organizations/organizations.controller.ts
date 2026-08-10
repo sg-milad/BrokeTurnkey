@@ -28,7 +28,7 @@ export class OrganizationsController {
   constructor(
     private readonly organizationsService: OrganizationsService,
     private readonly auditLogRepo: AuditLogRepository,
-  ) { }
+  ) {}
 
   @Post()
   @Public()
@@ -118,7 +118,7 @@ export class OrganizationsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.auditLogRepo.query({
+    const entries = await this.auditLogRepo.query({
       orgId,
       event,
       userId,
@@ -128,5 +128,7 @@ export class OrganizationsController {
       limit: limit ? parseInt(limit, 10) : 50,
       offset: offset ? parseInt(offset, 10) : 0,
     });
+
+    return entries.map(({ id, ...entry }) => ({ ...entry, id: id.toString() }));
   }
 }
