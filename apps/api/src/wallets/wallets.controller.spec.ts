@@ -110,9 +110,6 @@ describe('WalletsController', () => {
                     to: '0xabc',
                     value: '100',
                     data: '0x',
-                    gasLimit: 21000,
-                    maxFeePerGas: '30000000000',
-                    maxPriorityFeePerGas: '1000000000',
                 },
             } as SignTransactionDto;
 
@@ -140,9 +137,6 @@ describe('WalletsController', () => {
                     to: '0xdef',
                     value: '1',
                     data: '0x',
-                    gasLimit: 21000,
-                    maxFeePerGas: '1',
-                    maxPriorityFeePerGas: '1',
                 },
             } as SignTransactionDto;
             const signTransactionSpy = jest

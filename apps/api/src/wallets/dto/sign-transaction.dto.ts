@@ -2,7 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEthereumAddress,
   IsInt,
-  IsOptional,
   Matches,
   Max,
   Min,
@@ -26,26 +25,6 @@ class TxFieldsDto {
     message: 'value must be a non-negative decimal wei string',
   })
   value!: string;
-
-  @ApiProperty({ example: 21000, required: false })
-  @IsOptional()
-  @IsInt()
-  @Min(21000)
-  gasLimit?: number;
-
-  @ApiProperty({ example: '30000000000', required: false })
-  @IsOptional()
-  @Matches(/^(0|[1-9]\d*)$/, {
-    message: 'maxFeePerGas must be a non-negative decimal wei string',
-  })
-  maxFeePerGas?: string;
-
-  @ApiProperty({ example: '1000000000', required: false })
-  @IsOptional()
-  @Matches(/^(0|[1-9]\d*)$/, {
-    message: 'maxPriorityFeePerGas must be a non-negative decimal wei string',
-  })
-  maxPriorityFeePerGas?: string;
 
   @ApiProperty({ example: '0x' })
   @Matches(/^0x(?:[0-9a-fA-F]{2})*$/, {

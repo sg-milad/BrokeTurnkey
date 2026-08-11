@@ -26,10 +26,6 @@ export interface SignRequest {
   to: string;
   value: string; // decimal string, wei
   data: string; // 0x-prefixed hex
-  // Optional overrides — if omitted, GasService estimates them
-  gasLimit?: number;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
 }
 
 export interface SignResult {
@@ -55,7 +51,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) {}
+  ) { }
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -268,11 +264,6 @@ export class WalletService {
       wallet.address,
     );
 
-    const gasLimit = req.gasLimit ?? fees.gasLimit;
-    const maxFeePerGas = req.maxFeePerGas ?? fees.maxFeePerGas;
-    const maxPriorityFeePerGas =
-      req.maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
-
     // 5. Create the pending signing_request before reserving a nonce.
     // This prevents races where duplicate requests both reserve a nonce and
     // waste one before the idempotency constraint can fail the second request.
@@ -323,9 +314,9 @@ export class WalletService {
       nonce,
       to: req.to,
       value: req.value,
-      gasLimit,
-      maxFeePerGas,
-      maxPriorityFeePerGas,
+      gasLimit: fees.gasLimit,
+      maxFeePerGas: fees.maxFeePerGas,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
       data: req.data,
     };
 

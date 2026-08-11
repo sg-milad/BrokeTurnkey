@@ -13,7 +13,7 @@ export class WalletsController {
   constructor(
     private readonly walletService: WalletService,
     private readonly signingService: SigningService,
-  ) {}
+  ) { }
 
   @Get(':id')
   @Scopes('wallet:read')
@@ -87,9 +87,6 @@ export class WalletsController {
       to: dto.txFields.to,
       value: dto.txFields.value,
       data: dto.txFields.data,
-      gasLimit: dto.txFields.gasLimit,
-      maxFeePerGas: dto.txFields.maxFeePerGas,
-      maxPriorityFeePerGas: dto.txFields.maxPriorityFeePerGas,
     });
   }
 
