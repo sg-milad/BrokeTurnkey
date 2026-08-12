@@ -3,28 +3,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "$SCRIPT_DIR/stamp.sh"
 
 COMMAND="${1:-help}"
 
-ORG_ID="${ORG_ID:-}"
-ORG_SLUG="${ORG_SLUG:-}"
+tmp_body() { mktemp; }
 
-tmp_body() {
-  mktemp
-}
-
-cleanup() {
-  rm -f "${BODY_FILE:-}" 2>/dev/null || true
-}
-
+cleanup() { rm -f "${BODY_FILE:-}" 2>/dev/null || true; }
 trap cleanup EXIT
+
+pretty() {
+  if command -v jq &>/dev/null; then
+    jq .
+  else
+    cat
+  fi
+}
 
 
 # ------------------------------------------------------------
 # POST /organizations
-# Public endpoint - NO X-Stamp required
+# Public — no X-Stamp required
 # ------------------------------------------------------------
 
 create() {
@@ -32,7 +31,6 @@ create() {
   local slug="${3:-my-organization}"
 
   BODY_FILE="$(tmp_body)"
-
   cat > "$BODY_FILE" <<EOF
 {"name":"$name","slug":"$slug"}
 EOF
@@ -43,11 +41,10 @@ EOF
   echo
   echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     -X POST "$API/organizations" \
     -H 'Content-Type: application/json' \
-    --data-binary "@$BODY_FILE"
+    --data-binary "@$BODY_FILE" | pretty
 
   echo
 }
@@ -55,7 +52,6 @@ EOF
 
 # ------------------------------------------------------------
 # GET /organizations
-# Authenticated
 # ------------------------------------------------------------
 
 get() {
@@ -66,11 +62,11 @@ get() {
   stamp="$(make_stamp "$BODY_FILE")"
 
   echo "GET /organizations"
+  echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     "$API/organizations" \
-    -H "X-Stamp: $stamp"
+    -H "X-Stamp: $stamp" | pretty
 
   echo
 }
@@ -78,18 +74,10 @@ get() {
 
 # ------------------------------------------------------------
 # GET /organizations/slug/:slug
-# Authenticated
 # ------------------------------------------------------------
 
 get_by_slug() {
-  local slug="${2:-$ORG_SLUG}"
-
-  if [[ -z "$slug" ]]; then
-    echo "ERROR: slug is required"
-    echo "Usage:"
-    echo "  $0 get-by-slug <slug>"
-    exit 1
-  fi
+  local slug="${2:?Usage: $0 get-by-slug <slug>}"
 
   BODY_FILE="$(tmp_body)"
   : > "$BODY_FILE"
@@ -98,11 +86,11 @@ get_by_slug() {
   stamp="$(make_stamp "$BODY_FILE")"
 
   echo "GET /organizations/slug/$slug"
+  echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     "$API/organizations/slug/$slug" \
-    -H "X-Stamp: $stamp"
+    -H "X-Stamp: $stamp" | pretty
 
   echo
 }
@@ -110,7 +98,6 @@ get_by_slug() {
 
 # ------------------------------------------------------------
 # GET /organizations/wallets
-# Authenticated
 # ------------------------------------------------------------
 
 wallets() {
@@ -121,11 +108,11 @@ wallets() {
   stamp="$(make_stamp "$BODY_FILE")"
 
   echo "GET /organizations/wallets"
+  echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     "$API/organizations/wallets" \
-    -H "X-Stamp: $stamp"
+    -H "X-Stamp: $stamp" | pretty
 
   echo
 }
@@ -133,7 +120,6 @@ wallets() {
 
 # ------------------------------------------------------------
 # GET /organizations/signing-requests
-# Authenticated
 # ------------------------------------------------------------
 
 signing_requests() {
@@ -144,11 +130,11 @@ signing_requests() {
   stamp="$(make_stamp "$BODY_FILE")"
 
   echo "GET /organizations/signing-requests"
+  echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     "$API/organizations/signing-requests" \
-    -H "X-Stamp: $stamp"
+    -H "X-Stamp: $stamp" | pretty
 
   echo
 }
@@ -156,7 +142,6 @@ signing_requests() {
 
 # ------------------------------------------------------------
 # GET /organizations/audit-log
-# Authenticated
 # ------------------------------------------------------------
 
 audit_log() {
@@ -169,17 +154,14 @@ audit_log() {
   stamp="$(make_stamp "$BODY_FILE")"
 
   local url="$API/organizations/audit-log"
-
-  if [[ -n "$query" ]]; then
-    url="${url}?${query}"
-  fi
+  [[ -n "$query" ]] && url="${url}?${query}"
 
   echo "GET $url"
+  echo
 
-  curl --fail-with-body \
-    -sS \
+  curl --fail-with-body -sS \
     "$url" \
-    -H "X-Stamp: $stamp"
+    -H "X-Stamp: $stamp" | pretty
 
   echo
 }
@@ -190,76 +172,56 @@ audit_log() {
 # ------------------------------------------------------------
 
 help() {
-  cat <<EOF
+  cat <<'EOF'
 
 Organizations API
 
 Usage:
 
-  $0 create [name] [slug]
-
-  $0 get
-
-  $0 get-by-slug <slug>
-
-  $0 wallets
-
-  $0 signing-requests
-
-  $0 audit-log [query]
+  create          [name] [slug]
+  get
+  get-by-slug     <slug>
+  wallets
+  signing-requests
+  audit-log       [query]
 
 Examples:
 
-  $0 create "My Organization" "my-org"
+  # Create an org (public — no auth needed)
+  ./organizations.sh create "Acme Corp" "acme"
 
-  KEY_ID=ak_prod_123 PRIVATE_KEY=./private.pem \
-    $0 get
+  # Get org details
+  KEY_ID=ak_prod_abc123 PRIVATE_KEY=./private.pem \
+    ./organizations.sh get
 
-  KEY_ID=ak_prod_123 PRIVATE_KEY=./private.pem \
-    $0 get-by-slug my-org
+  # Look up by slug
+  KEY_ID=ak_prod_abc123 PRIVATE_KEY=./private.pem \
+    ./organizations.sh get-by-slug acme
 
-  KEY_ID=ak_prod_123 PRIVATE_KEY=./private.pem \
-    $0 wallets
+  # List wallets
+  KEY_ID=ak_prod_abc123 PRIVATE_KEY=./private.pem \
+    ./organizations.sh wallets
 
-  KEY_ID=ak_prod_123 PRIVATE_KEY=./private.pem \
-    $0 signing-requests
+  # Signing history
+  KEY_ID=ak_prod_abc123 PRIVATE_KEY=./private.pem \
+    ./organizations.sh signing-requests
 
-  KEY_ID=ak_prod_123 PRIVATE_KEY=./private.pem \
-    $0 audit-log "event=wallet.created&limit=20&offset=0"
+  # Audit log with filters
+  KEY_ID=ak_prod_abc123 PRIVATE_KEY=./private.pem \
+    ./organizations.sh audit-log "event=wallet.created&limit=20&offset=0"
 
 EOF
 }
 
 
 case "$COMMAND" in
-  create)
-    create "$@"
-    ;;
-
-  get)
-    get "$@"
-    ;;
-
-  get-by-slug)
-    get_by_slug "$@"
-    ;;
-
-  wallets)
-    wallets "$@"
-    ;;
-
-  signing-requests)
-    signing_requests "$@"
-    ;;
-
-  audit-log)
-    audit_log "$@"
-    ;;
-
-  help|-h|--help)
-    help
-    ;;
-
+  create)           create "$@" ;;
+  get)              get "$@" ;;
+  get-by-slug)      get_by_slug "$@" ;;
+  wallets)          wallets "$@" ;;
+  signing-requests) signing_requests "$@" ;;
+  audit-log)        audit_log "$@" ;;
+  help|-h|--help)   help ;;
   *)
     echo "Unknown command: $COMMAND"
     help
