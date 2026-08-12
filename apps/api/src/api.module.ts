@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { ApiController } from './api.controller';
-import { ApiService } from './api.service';
 import { DatabaseModule } from '@app/db';
 import { ConfigModule } from '@nestjs/config';
 import { appConfig } from './config/app.config';
@@ -33,9 +31,7 @@ import {
     WalletsModule,
     MonitorModule,
   ],
-  controllers: [ApiController],
   providers: [
-    ApiService,
     // Global guards run in registration order. Rate limiting first (so floods
     // are rejected cheaply), then stamp verification, then scope enforcement.
     { provide: APP_GUARD, useClass: ApiKeyThrottlerGuard },
@@ -43,4 +39,4 @@ import {
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
 })
-export class ApiModule {}
+export class ApiModule { }

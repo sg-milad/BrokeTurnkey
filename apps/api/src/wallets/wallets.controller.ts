@@ -90,25 +90,6 @@ export class WalletsController {
     });
   }
 
-  @Post(':id/sign')
-  @Scopes('wallet:sign')
-  @HttpCode(200)
-  @ApiOperation({
-    summary:
-      'Sign and broadcast a transaction (backward-compatible alias for /sign-transaction)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Transaction signed and broadcast.',
-  })
-  async sign(
-    @CurrentUser('orgId') orgId: string,
-    @Param('id') walletId: string,
-    @Body() dto: SignTransactionDto,
-  ) {
-    return this.signTransaction(orgId, walletId, dto);
-  }
-
   @Post(':id/sign-typed')
   @Scopes('wallet:sign')
   @HttpCode(200)
