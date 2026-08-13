@@ -1,0 +1,30 @@
+{
+    "domain": {
+        "name": "MyApp",
+        "version": "1",
+        "chainId": 84532,
+        "verifyingContract": "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC"
+    },
+    "types": {
+        "Mail": [
+            {
+                "name": "from",
+                "type": "address"
+            },
+            {
+                "name": "to",
+                "type": "address"
+            },
+            {
+                "name": "contents",
+                "type": "string"
+            }
+        ]
+    },
+    "primaryType": "Mail",
+    "message": {
+        "from": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "to": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "contents": "Hello!"
+    }
+}
