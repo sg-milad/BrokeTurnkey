@@ -26,6 +26,16 @@ do on restart is **unseal** — not re-init.
 
 ---
 
+
+## Step 0 — Ensure Volume Exists & Fix Ownership
+When Docker creates the walletmvp_vault-data volume, it defaults to root
+ownership. Vault runs as UID 100 and will crash if it cannot write to its
+data directory.
+
+# 0.1. Safely fix ownership using an isolated Alpine container
+docker run --rm -v walletmvp_vault-data:/vault-file alpine chown -R 100:100 /vault-file
+
+
 ## Step 1 — Wait for Vault to be ready
 
 ```bash
