@@ -20,7 +20,7 @@ export class AuthService {
     private readonly apiKeyRepo: ApiKeyRepository,
     private readonly orgRepo: organizationRepository,
     private readonly auditLogRepo: AuditLogRepository,
-  ) {}
+  ) { }
 
   async registerApiKey(
     orgId: string,
@@ -45,6 +45,13 @@ export class AuthService {
     } else {
       throw new BadRequestException(
         'Either bootstrap token or valid API key required',
+      );
+    }
+
+    const existingKey = await this.apiKeyRepo.findById(data.publicKey);
+    if (existingKey) {
+      throw new BadRequestException(
+        'An API key with the same public key already exists',
       );
     }
 
