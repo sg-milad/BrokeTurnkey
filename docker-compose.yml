@@ -9,7 +9,7 @@ services:
     environment:
       VAULT_ADDR: "http://0.0.0.0:8200"
     volumes:
-      - vault-data:/vault/data
+      - vault-data:/vault/file
       - vault-logs:/vault/logs
       - ./vault/config:/vault/config:ro
     cap_add:
@@ -82,5 +82,8 @@ networks:
 
 volumes:
   vault-data:
+    name: walletmvp_vault-data
   vault-logs:
+    name: walletmvp_vault-logs
   postgres-data:
+    name: walletmvp_postgres-data
