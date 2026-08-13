@@ -1,0 +1,7 @@
+{
+    "name": "1 ETH spend cap",
+    "ruleType": "spend_limit",
+    "ruleConfig": {
+        "max_amount_wei": "1000000000000000000"
+    }
+}
