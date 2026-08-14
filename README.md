@@ -72,73 +72,16 @@ to compromise the Go service and Vault simultaneously.
 
 ---
 
-## Technology stack
+## Stack
 
-| Layer                      | Technology                                     | Cost |
-| -------------------------- | ---------------------------------------------- | ---- |
-| API framework              | NestJS + TypeScript                            | Free |
-| Crypto service             | Go (long-lived HTTP sidecar)                   | Free |
-| Key encryption (KEK)       | HashiCorp Vault OSS (Docker)                   | Free |
-| Seed encryption            | AES-256-GCM (Go `crypto/aes`)                  | Free |
-| HD wallet generation       | `go-bip39` + `go-bip32` (Go)                   | Free |
-| Transaction signing        | `go-ethereum` (RLP, keccak256, secp256k1)      | Free |
-| Smart contract interaction | Viem (NestJS broadcast layer)                  | Free |
-| Database                   | PostgreSQL (Docker)                            | Free |
-| RPC / gas estimation       | Ankr free / Alchemy free / Tenderly            | Free |
-| Authentication             | P-256 API keys + optional WebAuthn             | Free |
-| Audit log                  | PostgreSQL append-only table + Vault audit log | Free |
+The NestJS API is TypeScript throughout. The Go crypto service is a separate
+long-lived HTTP sidecar that handles all cryptographic operations: BIP39/BIP32
+key derivation, AES-256-GCM encryption, RLP encoding, keccak256 hashing, and
+secp256k1 signing. HashiCorp Vault OSS runs in Docker as the KEK store.
+PostgreSQL for everything else. Viem in NestJS for gas estimation and broadcast.
+Free RPC (Alchemy / Ankr) for testnet; swap in your own endpoint for mainnet.
 
-**Total infrastructure cost: $0**
-
----
-
-## Key design decisions
-
-### One seed per organization (B2B model)
-
-Every B2B customer (organization) gets one BIP39 mnemonic seed (24 words,
-256-bit entropy) generated at onboarding. All wallet addresses for that
-organization are derived deterministically from this single seed via BIP32
-paths (`m/44'/60'/0'/0/N`). No new entropy is ever needed when adding wallets.
-The seed is generated once, encrypted immediately, and never stored in plaintext.
-
-### Go owns all cryptography
-
-All cryptographic operations happen exclusively in the Go crypto service:
-BIP39 mnemonic generation, AES-256-GCM seed encryption, Vault DEK wrapping,
-BIP32 child key derivation, RLP transaction encoding, keccak256 hashing, and
-secp256k1 signing. NestJS receives only ciphertext and signatures. This means
-plaintext key material never exists in the Node.js process — not even briefly.
-
-### Envelope encryption with Vault as KEK
-
-Each organization has a random 32-byte DEK that encrypts their seed. The DEK
-itself is encrypted by Vault's Transit engine (the KEK), which never leaves
-Vault. Only ciphertext is stored in PostgreSQL. A database breach alone
-exposes nothing; an attacker would also need to compromise the Go service
-and Vault simultaneously.
-
-### Single Vault AppRole for Go only
-
-NestJS has no Vault credentials. The Go crypto service uses one AppRole
-(`wallet-signer`) scoped only to `transit/encrypt` and `transit/decrypt`.
-The AppRole SecretID is rotated **manually every 30 days** (see
-`docs/VAULT_INIT.md`); the Vault token itself is renewed automatically by Go
-at 75% of its TTL.
-
-### Shared secret between NestJS and Go
-
-Every NestJS → Go call carries the `X-Crypto-Token` header with a shared
-secret (`CRYPTO_AUTH_TOKEN`) that the Go service requires on every endpoint
-except `/health`. See `docs/CRYPTO_SERVICE.md` for how to generate the token
-and call the Go service directly.
-
-### Stamp-based authentication
-
-Every client request carries a P-256 cryptographic stamp: a signature over
-the request body and timestamp attached as an `X-Stamp` header. The API
-verifies this before doing anything. This prevents request forgery, MITM
-attacks, and replay attacks — the same mechanism Turnkey uses.
+Total infra cost: $0.
 
 ---
 
@@ -217,47 +160,33 @@ scripts/
    Verify it: `curl http://localhost:4000/health` (or with the dev override
    — see `docs/CRYPTO_SERVICE.md` for full usage).
 
-7. Call `POST /organizations/:id/onboard` to onboard your first organization.
+7. Make your first request (see walkthrough below).
 
 ### First request walkthrough
-
+-> recommendation: use [scripts](./scripts/api/) for sending request.
 ```bash
-# 1. Create an organization
+# 1. Create and onboard an organization in one step.
+#    Returns the first wallet address and a one-time bootstrap token.
 curl -s -X POST http://localhost:3000/organizations \
   -H 'Content-Type: application/json' \
   -d '{"name": "Acme Corp", "slug": "acme"}'
-# → { id, slug, name, ... }
+# → { "id": "<org-id>", "slug": "acme", "firstAddress": "0x...", "bootstrapToken": "<token>", ... }
 
-# 2. Onboard it — generates the org seed, returns the first wallet address
-#    and the one-time bootstrap token for registering your first API key
-curl -s -X POST http://localhost:3000/organizations/<org-id>/onboard \
-  -H 'Content-Type: application/json' -d '{}'
-# → { orgId, firstAddress, bootstrapToken }
+# 2. Register your first API key using the bootstrap token.
+#    Generate a P-256 keypair first — the private key never leaves your machine.
+openssl ecparam -name prime256v1 -genkey -noout -out private.pem
+openssl ec -in private.pem -pubout -out public.pem
 
-# 3. Register your first API key using the bootstrap token
-curl -s -X POST http://localhost:3000/organizations/<org-id>/api-keys \
+curl -s -X POST http://localhost:3000/api-keys \
   -H 'Content-Type: application/json' \
   -H 'X-Bootstrap-Token: <bootstrapToken>' \
-  -d '{"name": "prod", "publicKey": "<P-256 public key in PEM>", "scopes": ["*"]}'
+  -d '{
+    "name": "prod",
+    "publicKey": "<contents of public.pem with \\n escapes>",
+    "scopes": ["*"]
+  }'
+# → { "keyId": "ak_prod_abc123", ... }
 ```
 
-From there, every request must carry a **stamp** — a P-256 signature over the
-raw request body + timestamp in the `X-Stamp` header. See
-`docs/STAMP_AUTH.md` (spec) and `docs/API.md` (worked examples) for the
-construction.
-
-### Calling the Go crypto service directly (debugging only)
-
-Every endpoint except `/health` requires `X-Crypto-Token`. Example:
-
-```bash
-curl -s -X POST http://localhost:4000/wallet/create \
-  -H 'Content-Type: application/json' \
-  -H "X-Crypto-Token: $CRYPTO_AUTH_TOKEN" \
-  -d '{}'
-```
-
-Full endpoint reference with request/response examples:
-`docs/CRYPTO_SERVICE.md`.
-
-Detailed instructions for Vault setup are in `docs/VAULT_INIT.md`.
+## Feature Tasks
+- implemnt ## Phase 7 — Smart Accounts (ERC-4337) in [tasks](./docs/TASKS.md)
