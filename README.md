@@ -91,12 +91,13 @@ Total infra cost: $0.
 apps/
   api/              NestJS app — gateway, auth, wallet CRUD, gas, broadcast
 libs/
-  crypto-client/    HTTP client for Go crypto service (replaces vault lib)
+  crypto-client/    HTTP client for Go crypto service
   wallet/           WalletService — wallet lifecycle, coordinates with Go service
   gas/              GasService — Viem estimateGas, nonce manager, broadcast
   policy/           PolicyEngine — rule evaluator (allowlist, limits, time locks)
   auth/             StampVerifier — P-256 stamp verification
   db/               DatabaseModule — Drizzle ORM, all 9 tables
+  monitor/          Transaction Monitor Service
 cmd/
   crypto/           Go crypto service — HTTP server, all cryptographic operations
 docs/
@@ -115,6 +116,7 @@ vault/
 scripts/
   unseal.sh         Automated Vault unseal on restart
   build-crypto.sh   Build the Go crypto service binary
+  api/*             sending request with bash
 ```
 
 ---
@@ -163,7 +165,9 @@ scripts/
 7. Make your first request (see walkthrough below).
 
 ### First request walkthrough
+
 -> recommendation: use [scripts](./scripts/api/) for sending request.
+
 ```bash
 # 1. Create and onboard an organization in one step.
 #    Returns the first wallet address and a one-time bootstrap token.
@@ -189,4 +193,5 @@ curl -s -X POST http://localhost:3000/api-keys \
 ```
 
 ## Feature Tasks
+
 - implemnt ## Phase 7 — Smart Accounts (ERC-4337) in [tasks](./docs/TASKS.md)
