@@ -420,7 +420,7 @@ Smart Account Wallet (Phase 7)
 
 ---
 
-## Phase 8 — Hardening and Observability
+## Phase 8 — Hardening and Observability 
 
 **Goal:** The platform is observable, operable, and resilient enough to run unattended.
 
@@ -469,7 +469,7 @@ Smart Account Wallet (Phase 7)
 
 ---
 
-## Phase 9 — Async Transaction Lifecycle
+## Phase 9 — Async Transaction Lifecycle ✅
 
 **Goal:** Move confirmation tracking out of the HTTP request path. `POST /wallets/:id/sign` returns immediately after broadcast. A `@nestjs/schedule` poller inside `apps/api` owns everything after that.
 
