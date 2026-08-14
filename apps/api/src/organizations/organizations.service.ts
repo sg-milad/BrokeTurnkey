@@ -11,7 +11,7 @@ export class OrganizationsService {
     private readonly organizationRepository: organizationRepository,
     private readonly walletService: WalletService,
     private readonly authService: AuthService,
-  ) {}
+  ) { }
 
   async create(
     createOrganizationDto: CreateOrganizationDto,
@@ -27,13 +27,14 @@ export class OrganizationsService {
     const org = await this.organizationRepository.create(createOrganizationDto);
 
     // Auto-onboard: create seed + first wallet, then generate bootstrap token
-    await this.walletService.onBoardOrganization(org.id);
+    const wallet = await this.walletService.onBoardOrganization(org.id);
     const bootstrapToken = await this.authService.generateBootstrapToken(
       org.id,
     );
 
-    return { ...org, bootstrapToken } as organization & {
+    return { ...org, bootstrapToken, walletAddress: wallet.firstAddress } as organization & {
       bootstrapToken: string;
+      walletAddress: string;
     };
   }
 

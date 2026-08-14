@@ -20,7 +20,6 @@ import {
 import { TxFields } from '@app/crypto-client/interfaces/crypto-client.interfaces';
 import { createHash } from 'crypto';
 
-// Fields the caller provides. Gas fields are optional — GasService fills them in.
 export interface SignRequest {
   chainId: number;
   to: string;
