@@ -7,8 +7,10 @@ import {
   Query,
   HttpCode,
 } from '@nestjs/common';
-import { OrganizationsService } from './organizations.service';
-import { type organization } from '@app/db/schema/organizations';
+import {
+  OrganizationsService,
+  PublicOrganization,
+} from './organizations.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationDto } from './dto/organization.dto';
@@ -60,7 +62,7 @@ export class OrganizationsController {
   })
   async findOne(
     @CurrentUser('orgId') orgId: string,
-  ): Promise<organization | undefined> {
+  ): Promise<PublicOrganization | undefined> {
     return this.organizationsService.findOne(orgId);
   }
 
@@ -75,7 +77,7 @@ export class OrganizationsController {
   async findBySlug(
     @CurrentUser('orgId') orgId: string,
     @Param('slug') slug: string,
-  ): Promise<organization | undefined> {
+  ): Promise<PublicOrganization | undefined> {
     // Scope lookup to the caller's own organization to prevent cross-tenant
     // data leakage. The slug must belong to the authenticated org.
     const org = await this.organizationsService.findBySlug(slug);

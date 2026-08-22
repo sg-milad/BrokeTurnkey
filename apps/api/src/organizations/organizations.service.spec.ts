@@ -77,10 +77,12 @@ describe('OrganizationsService', () => {
         });
 
         it('creates organization, auto-onboards and returns org with bootstrap token', async () => {
-            const created = { ...orgRow, bootstrap_token: null };
+            const created = { ...orgRow };
             organizationRepo.findBySlug.mockResolvedValue(undefined);
             organizationRepo.create.mockResolvedValue(created);
-            walletService.onBoardOrganization.mockResolvedValue(undefined);
+            walletService.onBoardOrganization.mockResolvedValue({
+                firstAddress: '0xabc123',
+            });
             authService.generateBootstrapToken.mockResolvedValue('bootstrap-123');
 
             const result = await service.create(dto);
@@ -93,9 +95,16 @@ describe('OrganizationsService', () => {
                 'org-1',
             );
             expect(result).toEqual({
-                ...created,
+                id: 'org-1',
+                name: 'Acme',
+                slug: 'acme',
+                created_at: created.created_at,
+                updated_at: created.updated_at,
                 bootstrapToken: 'bootstrap-123',
+                walletAddress: '0xabc123',
             });
+            // Internal state must never cross the API boundary.
+            expect(result).not.toHaveProperty('bootstrap_token_hash');
         });
 
         it('does not create wallet/token when repo.create rejects', async () => {
@@ -110,10 +119,11 @@ describe('OrganizationsService', () => {
     });
 
     describe('findOne', () => {
-        it('returns the organization', async () => {
+        it('returns the organization without the internal bootstrap_token_hash', async () => {
             organizationRepo.findById.mockResolvedValue(orgRow);
 
-            await expect(service.findOne('org-1')).resolves.toEqual(orgRow);
+            const { bootstrap_token_hash, ...publicOrg } = orgRow;
+            await expect(service.findOne('org-1')).resolves.toEqual(publicOrg);
             expect(organizationRepo.findById).toHaveBeenCalledWith('org-1');
         });
 
@@ -125,10 +135,13 @@ describe('OrganizationsService', () => {
     });
 
     describe('findBySlug', () => {
-        it('delegates to repository', async () => {
+        it('delegates to repository and strips internal bootstrap_token_hash', async () => {
             organizationRepo.findBySlug.mockResolvedValue(orgRow);
 
-            await expect(service.findBySlug('acme')).resolves.toEqual(orgRow);
+            const { bootstrap_token_hash, ...publicOrg } = orgRow;
+            await expect(service.findBySlug('acme')).resolves.toEqual(
+                publicOrg,
+            );
             expect(organizationRepo.findBySlug).toHaveBeenCalledWith('acme');
         });
     });
