@@ -48,7 +48,9 @@ export class ApiKeysController {
       'Registers a new API key for the organization. Authenticate with either ' +
       'a valid stamp (key must have key:write scope) or the one-time ' +
       'X-Bootstrap-Token header returned by POST /organizations. ' +
-      'Scopes default to ["*"] when omitted.',
+      'Bootstrap registrations default to ["*"] (unrestricted); ' +
+      'stamp-authenticated registrations must declare explicit scopes — ' +
+      '"*" is rejected for them.',
   })
   @ApiResponse({
     status: 201,

@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Node.js / NestJS dependencies (apps/api, libs/*)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    groups:
+      nestjs:
+        patterns:
+          - "@nestjs/*"
+      typescript-tooling:
+        patterns:
+          - "typescript"
+          - "ts-jest"
+          - "ts-node"
+          - "typescript-eslint"
+          - "eslint*"
+
+  # Go crypto sidecar (cmd/crypto) — go-ethereum, go-bip32/39 are
+  # security-critical; keep them current.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+
+  # Container base images (node, golang, alpine, hashicorp/vault, postgres)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
