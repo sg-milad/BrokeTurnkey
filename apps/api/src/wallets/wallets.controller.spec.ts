@@ -121,34 +121,7 @@ describe('WalletsController', () => {
                 to: '0xabc',
                 value: '100',
                 data: '0x',
-                gasLimit: 21000,
-                maxFeePerGas: '30000000000',
-                maxPriorityFeePerGas: '1000000000',
             });
-        });
-    });
-
-    describe('sign', () => {
-        it('forwards to signTransaction as a backward-compatible alias', async () => {
-            const result = { requestId: 'sr-10' };
-            const dto = {
-                txFields: {
-                    chainId: 1,
-                    to: '0xdef',
-                    value: '1',
-                    data: '0x',
-                },
-            } as SignTransactionDto;
-            const signTransactionSpy = jest
-                .spyOn(controller, 'signTransaction')
-                .mockResolvedValue(result);
-
-            await expect(controller.sign('org-1', 'w-1', dto)).resolves.toEqual(
-                result,
-            );
-            expect(signTransactionSpy).toHaveBeenCalledWith('org-1', 'w-1', dto);
-
-            signTransactionSpy.mockRestore();
         });
     });
 

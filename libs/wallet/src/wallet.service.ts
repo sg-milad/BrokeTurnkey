@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Logger,
   ForbiddenException,
+  ConflictException,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
@@ -50,7 +51,7 @@ export class WalletService {
     private readonly signingRequestRepo: SigningRequestRepository,
     private readonly auditLogRepo: AuditLogRepository,
     private readonly userRepo: UserRepository,
-  ) { }
+  ) {}
 
   async onBoardOrganization(orgId: string) {
     const existing = await this.orgSeedRepo.findByOrgId(orgId);
@@ -106,33 +107,58 @@ export class WalletService {
     // Resolve chain ID — default to Ethereum mainnet if not provided
     const resolvedChainId = chainId ?? 1;
 
-    const derivIndex = await this.walletRepo.countByOrgId(orgId);
+    // Derive the next address index from the wallet count. Under concurrent
+    // derives two requests can observe the same count, so the insert below
+    // is guarded by the unique (org_id, derivation_path) constraint
+    // (uq_wallets_org_path) and retried with a fresh index on conflict —
+    // a client can never be told about index N and silently get N+1.
+    const MAX_DERIVE_ATTEMPTS = 3;
+    let derivIndex = await this.walletRepo.countByOrgId(orgId);
 
-    const { address, derivationPath } = await this.cryptoClient.deriveWallet(
-      seedRow.encrypted_seed,
-      seedRow.seed_nonce,
-      seedRow.encrypted_dek,
-      derivIndex,
-    );
+    for (let attempt = 1; attempt <= MAX_DERIVE_ATTEMPTS; attempt++) {
+      const { address, derivationPath } = await this.cryptoClient.deriveWallet(
+        seedRow.encrypted_seed,
+        seedRow.seed_nonce,
+        seedRow.encrypted_dek,
+        derivIndex,
+      );
 
-    const wallet = await this.walletRepo.create({
-      org_id: orgId,
-      user_id: userId,
-      label,
-      address,
-      derivation_path: derivationPath,
-      chain_id: resolvedChainId,
-    });
+      try {
+        const wallet = await this.walletRepo.create({
+          org_id: orgId,
+          user_id: userId,
+          label,
+          address,
+          derivation_path: derivationPath,
+          chain_id: resolvedChainId,
+        });
 
-    await this.auditLogRepo.create({
-      org_id: orgId,
-      user_id: userId,
-      wallet_id: wallet.id,
-      event: 'wallet_created',
-      status: 'success',
-    });
+        await this.auditLogRepo.create({
+          org_id: orgId,
+          user_id: userId,
+          wallet_id: wallet.id,
+          event: 'wallet_created',
+          status: 'success',
+        });
 
-    return { walletId: wallet.id, address };
+        return { walletId: wallet.id, address };
+      } catch (err) {
+        const pgErr = err as { code?: string } | undefined;
+        if (pgErr?.code !== '23505') throw err; // not a path-uniqueness conflict
+
+        if (attempt === MAX_DERIVE_ATTEMPTS) {
+          throw new ConflictException(
+            'Wallet derivation conflicted with a concurrent request — please retry',
+          );
+        }
+
+        // Another request took this index — recount and retry with the next.
+        derivIndex = await this.walletRepo.countByOrgId(orgId);
+      }
+    }
+
+    // Unreachable — the loop always returns or throws.
+    throw new ConflictException('Wallet derivation failed');
   }
 
   async listWalletsByOrgId(orgId: string) {
@@ -239,11 +265,16 @@ export class WalletService {
       return this.buildSignResultFromRequest(existingRequest);
     }
 
-    // 3. Policy evaluation - BEFORE nonce reservation to avoid wasting nonces
+    // 3. Policy evaluation - BEFORE nonce reservation to avoid wasting nonces.
+    // Include calldata visibility (hash + length) so policy rules and the
+    // audit log can reason about contract-call transactions, not just
+    // to/value transfers.
     const txPayload = {
       to: req.to,
       value: req.value,
       chainId: req.chainId,
+      dataHash: createHash('sha256').update(req.data).digest('hex'),
+      dataLength: req.data.length,
     };
     const policyResult = await this.policyService.evaluate(
       orgId,

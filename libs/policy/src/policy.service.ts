@@ -12,6 +12,11 @@ export interface TxPayload {
   to: string;
   value: string; // wei as decimal string
   chainId: number;
+  /** SHA-256 of the raw calldata hex string, so policies/audit can see what
+   * a contract-call transaction is doing without storing the payload. */
+  dataHash?: string;
+  /** Length of the raw calldata hex string (including "0x" prefix). */
+  dataLength?: number;
 }
 
 @Injectable()
