@@ -1,9 +1,11 @@
-# Local development override — restores host-visible ports for tooling.
+# Local development override — restores host-visible ports for tooling and
+# swaps the API service to the dev target (watch mode + host bind mount).
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# The base compose file intentionally does NOT publish these ports:
+# The base compose file intentionally does NOT publish these ports and runs
+# the production API target:
 #   - vault 8200   (Vault UI / manual unseal)
 #   - postgres 5432 (psql, drizzle-kit studio, host-side db:push)
 # Reach the containers via docker exec whenever possible instead.
@@ -15,3 +17,14 @@ services:
   postgres:
     ports:
       - "5432:5432"
+
+  api:
+    build:
+      target: development
+    environment:
+      # Override the base compose file's production NODE_ENV.
+      NODE_ENV: development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: pnpm run start:dev api

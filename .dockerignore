@@ -1,0 +1,21 @@
+# Keep secrets, build output, and local state out of image build contexts.
+# Without this, `COPY . .` in the Dockerfile stages would bake .env /
+# .env.crypto / .env.vault (Vault unseal keys, AppRole SecretID,
+# CRYPTO_AUTH_TOKEN, DB password) into the image layers.
+
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+backups
+coverage
+*.log
+.vscode
+.idea
+Dockerfile
+Dockerfile.crypto
+docker-compose*.yml
+scripts
+docs

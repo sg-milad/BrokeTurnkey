@@ -57,22 +57,25 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
+      target: production
     container_name: walletmvp-api
     restart: unless-stopped
-    # 3000 is the only port a client ever needs. In production, build with
-    # `target: production` instead (no repo mount, no dev server).
+    # 3000 is the only port a client ever needs. The production target runs
+    # the compiled app as a non-root user with no host repo mount. For local
+    # development (watch mode, host bind mount, Swagger) use:
+    #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
     ports:
       - "3000:3000"
+    environment:
+      # Overrides NODE_ENV=development in .env.example — the base compose
+      # file is the production wiring. Dev overrides live in
+      # docker-compose.dev.yml.
+      NODE_ENV: production
     env_file:
       - .env
-    volumes:
-      - .:/app
-      - /app/node_modules
     depends_on:
       - postgres
       - crypto
-    command: pnpm run start:dev api
     networks:
       - walletmvp-network
 
