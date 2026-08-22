@@ -3,6 +3,7 @@ import type { DrizzleClient } from '../db';
 import { DRIZZLE_CLIENT } from '../constants';
 import { IAuditLogRepository } from '../repositories/interfaces/audit-log.repository.interface';
 import { AuditLog, NewAuditLog, audit_log } from '../schema/audit-log';
+import { getRequestContext } from '../request-context';
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 
 export interface AuditLogQuery {
@@ -21,7 +22,18 @@ export class AuditLogRepository implements IAuditLogRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
   async create(data: NewAuditLog): Promise<AuditLog> {
-    const result = await this.db.insert(audit_log).values(data).returning();
+    // Attach request metadata (client IP, user agent) captured at the HTTP
+    // edge by the middleware in main.ts. Undefined outside HTTP request
+    // handling (cron jobs, tests) → columns stay NULL.
+    const ctx = getRequestContext();
+    const result = await this.db
+      .insert(audit_log)
+      .values({
+        ...data,
+        ip_address: ctx?.ip,
+        user_agent: ctx?.userAgent,
+      })
+      .returning();
     return result[0];
   }
 

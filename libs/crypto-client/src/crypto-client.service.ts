@@ -14,6 +14,10 @@ export class CryptoClientService implements OnModuleInit {
   private baseUrl!: string;
   private authToken!: string;
 
+  // Fail fast instead of hanging the request when the sidecar is down or
+  // wedged — a hung signing call must not hold the HTTP connection forever.
+  private static readonly REQUEST_TIMEOUT_MS = 10_000;
+
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
@@ -84,6 +88,7 @@ export class CryptoClientService implements OnModuleInit {
         'X-Crypto-Token': this.authToken,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(CryptoClientService.REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {

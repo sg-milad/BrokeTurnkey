@@ -25,6 +25,11 @@ var vaultState = struct {
 // vaultAddr is set once from env in main() before any Vault call is made.
 var vaultAddr string
 
+// httpClient is used for every Vault call. A hung Vault must not hang a
+// signing request forever — the server-level WriteTimeout is a backstop,
+// but each outbound call gets its own bound so errors surface fast.
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
 // --------------------------------------------------------------------------
 // AppRoleLogin authenticates to Vault using the wallet-signer AppRole.
 // It retries up to maxAttempts times before returning a fatal error.
@@ -64,7 +69,7 @@ func AppRoleLogin(roleID, secretID string) error {
 
 func doLogin(payload map[string]string) (token string, leaseDurSec int, err error) {
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(
+	resp, err := httpClient.Post(
 		vaultAddr+"/v1/auth/approle/login",
 		"application/json",
 		bytes.NewReader(body),
@@ -112,7 +117,7 @@ func RenewToken() error {
 	}
 	req.Header.Set("X-Vault-Token", token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("http post: %w", err)
 	}
@@ -199,7 +204,7 @@ func EncryptDEK(dek []byte) (string, error) {
 	req.Header.Set("X-Vault-Token", token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("http post: %w", err)
 	}
@@ -251,7 +256,7 @@ func DecryptDEK(ciphertext string) ([]byte, error) {
 	req.Header.Set("X-Vault-Token", token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http post: %w", err)
 	}

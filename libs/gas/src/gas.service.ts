@@ -296,6 +296,8 @@ export class GasService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+          // A wedged provider must not hold the retry loop hostage.
+          signal: AbortSignal.timeout(10_000),
         });
 
         if (!response.ok) {
