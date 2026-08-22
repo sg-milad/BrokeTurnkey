@@ -1,5 +1,5 @@
 # ---- base ----
-FROM node:22-alpine AS base
+FROM node:26-alpine AS base
 RUN npm install -g pnpm
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN pnpm run build
 # ---- production ----
 # Runs the compiled app as a non-root user with production-only
 # dependencies (no devDependencies, no host mount, no watch mode).
-FROM node:22-alpine AS production
+FROM node:26-alpine AS production
 RUN npm install -g pnpm
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
