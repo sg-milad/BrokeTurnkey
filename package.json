@@ -51,7 +51,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.20.0",
-    "@types/supertest": "^7.0.0",
+    "@types/supertest": "^7.2.1",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",
