@@ -6,6 +6,14 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 10
+    ignore:
+      # TypeScript 7 is the Go-native port — it ships only the `tsc`
+      # executable and dropped the programmatic compiler API until 7.1.
+      # Nest CLI, ts-jest, and typescript-eslint all need that API, so the
+      # known-good 5.x line must stay until every tool supports the new
+      # major. Unblock manually when Nest CLI supports it.
+      - dependency-name: "typescript"
+        versions: [">=6.0.0"]
     groups:
       nestjs:
         patterns:

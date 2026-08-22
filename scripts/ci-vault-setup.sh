@@ -17,7 +17,7 @@
 # Never use single-share init anywhere near production.
 set -euo pipefail
 
-VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
+export VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
 VAULT_BIN="${VAULT_BIN:-vault}"
 DEV_ROOT_TOKEN="${VAULT_DEV_ROOT_TOKEN_ID:-root}"
 
