@@ -400,11 +400,20 @@ func parseDerivIndex(path string) (uint32, error) {
 // parseTxFields safely maps the JSON request fields (strings for large ints)
 // into the exact types required by our crypto primitives. Every value is
 // range-checked before it can influence a signature.
+
+// uint256 max is 78 decimal digits. Length is checked BEFORE big.Int parsing
+// so a multi-hundred-KB digit string cannot burn CPU in SetString.
+const maxDecimalDigits = 78
+const maxCalldataBytes = 32 * 1024 // 32 KiB of calldata
+
 func parseTxFields(jsonTx TxFieldsJSON) (TxFields, error) {
 	if jsonTx.ChainId == 0 {
 		return TxFields{}, fmt.Errorf("chainId must be positive")
 	}
 
+	if len(jsonTx.Value) > maxDecimalDigits {
+		return TxFields{}, fmt.Errorf("tx value too large (max %d digits)", maxDecimalDigits)
+	}
 	value, ok := new(big.Int).SetString(jsonTx.Value, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid tx value: %s", jsonTx.Value)
@@ -413,6 +422,9 @@ func parseTxFields(jsonTx TxFieldsJSON) (TxFields, error) {
 		return TxFields{}, fmt.Errorf("tx value must be non-negative")
 	}
 
+	if len(jsonTx.MaxFeePerGas) > maxDecimalDigits {
+		return TxFields{}, fmt.Errorf("maxFeePerGas too large (max %d digits)", maxDecimalDigits)
+	}
 	maxFee, ok := new(big.Int).SetString(jsonTx.MaxFeePerGas, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid maxFeePerGas: %s", jsonTx.MaxFeePerGas)
@@ -421,6 +433,9 @@ func parseTxFields(jsonTx TxFieldsJSON) (TxFields, error) {
 		return TxFields{}, fmt.Errorf("maxFeePerGas must be positive")
 	}
 
+	if len(jsonTx.MaxPriorityFeePerGas) > maxDecimalDigits {
+		return TxFields{}, fmt.Errorf("maxPriorityFeePerGas too large (max %d digits)", maxDecimalDigits)
+	}
 	maxPriority, ok := new(big.Int).SetString(jsonTx.MaxPriorityFeePerGas, 10)
 	if !ok {
 		return TxFields{}, fmt.Errorf("invalid maxPriorityFeePerGas: %s", jsonTx.MaxPriorityFeePerGas)
@@ -442,6 +457,9 @@ func parseTxFields(jsonTx TxFieldsJSON) (TxFields, error) {
 	var data []byte
 	var err error
 	if jsonTx.Data != "" && jsonTx.Data != "0x" {
+		if len(jsonTx.Data) > 2+maxCalldataBytes*2 {
+			return TxFields{}, fmt.Errorf("tx data too large (max %d bytes)", maxCalldataBytes)
+		}
 		data, err = hex.DecodeString(strings.TrimPrefix(jsonTx.Data, "0x"))
 		if err != nil {
 			return TxFields{}, fmt.Errorf("invalid tx data hex: %w", err)
