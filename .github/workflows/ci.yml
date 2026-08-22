@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Go unit tests — the Vault integration tests self-skip when the VAULT_*
+  # env vars are absent (cmd/crypto/vault_test.go loadEnv). Full coverage,
+  # including the Vault round-trips, runs in go-tests-vault below.
+  # ---------------------------------------------------------------------------
+  go-tests:
+    name: Go unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+  # ---------------------------------------------------------------------------
+  # Full Go suite against a throwaway Vault (transit engine + wallet-signer
+  # AppRole), so the DEK encrypt/decrypt integration tests actually run.
+  # ---------------------------------------------------------------------------
+  go-tests-vault:
+    name: Go tests incl. Vault integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      vault:
+        # Dev mode (image default): initialized + unsealed on startup.
+        image: hashicorp/vault:1.17
+        ports:
+          - 8200:8200
+        options: --cap-add IPC_LOCK
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install vault CLI + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq unzip
+          curl -fsSL https://releases.hashicorp.com/vault/1.17.6/vault_1.17.6_linux_amd64.zip -o /tmp/vault.zip
+          sudo unzip -o /tmp/vault.zip -d /usr/local/bin
+
+      - name: Provision throwaway Vault (transit + AppRole)
+        run: |
+          bash scripts/ci-vault-setup.sh > /tmp/vault-env
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done < /tmp/vault-env
+
+      - name: Test (unit + Vault integration)
+        run: go test ./... -count=1
+
+  # ---------------------------------------------------------------------------
+  # NestJS: install (frozen lockfile) → build → jest.
+  # ---------------------------------------------------------------------------
+  nest-tests:
+    name: NestJS tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # Version is read from the packageManager field in package.json.
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm run test
+
+      # Repo-wide prettier/type-safety debt is pre-existing; surface it
+      # without blocking the pipeline until it is cleaned up.
+      - name: Lint (non-blocking)
+        if: always()
+        continue-on-error: true
+        run: pnpm run lint
