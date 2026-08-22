@@ -1,12 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash, generateKeyPairSync } from 'crypto';
 import { AuthService } from './auth.service';
 import { ApiKeyRepository, organizationRepository } from '@app/db/repositories';
 import { AuditLogRepository } from '@app/db/repositories/audit-log.repository';
 
 const sha256Hex = (value: string) =>
   createHash('sha256').update(value).digest('hex');
+
+// Real P-256 SPKI PEM — AuthService validates the public key format at
+// registration, so fixtures must be actual keys, not placeholder strings.
+const { publicKey: testKeyPairPublic } = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+});
+const publicKeyPem = testKeyPairPublic.export({
+  type: 'spki',
+  format: 'pem',
+}) as string;
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -31,7 +41,7 @@ describe('AuthService', () => {
     org_id: 'org-1',
     key_id: 'key-1',
     name: 'Test Key',
-    public_key: 'PUBLIC_KEY',
+    public_key: publicKeyPem,
     scopes: ['key:write'],
     status: 'active',
     created_at: new Date('2024-01-01T00:00:00Z'),
@@ -41,7 +51,7 @@ describe('AuthService', () => {
 
   const registerDto = {
     name: 'Test Key',
-    publicKey: 'PUBLIC_KEY',
+    publicKey: publicKeyPem,
     scopes: ['key:write'],
   };
 
@@ -143,7 +153,7 @@ describe('AuthService', () => {
         expect.objectContaining({
           org_id: 'org-1',
           name: 'Test Key',
-          public_key: 'PUBLIC_KEY',
+          public_key: publicKeyPem,
           scopes: ['key:write'],
           status: 'active',
         }),
@@ -159,15 +169,14 @@ describe('AuthService', () => {
         id: 1,
         keyId: 'key-1',
         name: 'Test Key',
-        publicKey: 'PUBLIC_KEY',
+        publicKey: publicKeyPem,
         scopes: ['key:write'],
         createdAt: apiKeyRow.created_at,
       });
     });
 
-    it('defaults scopes to ["*"] when none are provided', async () => {
+    it('defaults scopes to ["*"] for bootstrap registrations', async () => {
       orgRepo.findById.mockResolvedValue(org);
-      apiKeyRepo.hasScope.mockResolvedValue(true);
       apiKeyRepo.create.mockImplementation(async (data) => ({
         ...apiKeyRow,
         scopes: data.scopes,
@@ -175,14 +184,70 @@ describe('AuthService', () => {
 
       await service.registerApiKey(
         'org-1',
-        { name: 'Key', publicKey: 'PK' },
-        undefined,
-        'key-1',
+        { name: 'Key', publicKey: publicKeyPem },
+        'bootstrap-token',
       );
 
       expect(apiKeyRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ scopes: ['*'] }),
       );
+    });
+
+    it('rejects wildcard "*" scope for stamp-authenticated registrations', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+      apiKeyRepo.hasScope.mockResolvedValue(true);
+
+      await expect(
+        service.registerApiKey(
+          'org-1',
+          { name: 'Key', publicKey: publicKeyPem },
+          undefined,
+          'key-1',
+        ),
+      ).rejects.toThrow('Wildcard scope');
+
+      expect(apiKeyRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a public key that is not a valid P-256 SPKI PEM', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+
+      await expect(
+        service.registerApiKey(
+          'org-1',
+          { name: 'Key', publicKey: 'not-a-pem-key' },
+          'bootstrap-token',
+        ),
+      ).rejects.toThrow('publicKey must be a valid P-256');
+
+      expect(apiKeyRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a valid PEM that is not on the P-256 curve', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+      const { publicKey: rsaKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+      });
+      const rsaPem = rsaKey.export({ type: 'spki', format: 'pem' }) as string;
+
+      await expect(
+        service.registerApiKey(
+          'org-1',
+          { name: 'Key', publicKey: rsaPem },
+          'bootstrap-token',
+        ),
+      ).rejects.toThrow('publicKey must be an EC P-256');
+
+      expect(apiKeyRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('maps a unique-violation on create to a clean duplicate-key error', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+      apiKeyRepo.create.mockRejectedValue({ code: '23505' });
+
+      await expect(
+        service.registerApiKey('org-1', registerDto, 'bootstrap-token'),
+      ).rejects.toThrow('An API key with the same public key already exists');
     });
 
     it('uses a bootstrap token: validates, clears the token hash, and creates the key', async () => {

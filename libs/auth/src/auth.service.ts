@@ -5,8 +5,13 @@ import {
 } from '@nestjs/common';
 import { ApiKeyRepository, organizationRepository } from '@app/db/repositories';
 import { AuditLogRepository } from '@app/db/repositories/audit-log.repository';
-import { NewApiKey } from '@app/db/schema/api-keys';
-import { createHash, randomUUID, timingSafeEqual } from 'crypto';
+import { NewApiKey, ApiKey } from '@app/db/schema/api-keys';
+import {
+  createHash,
+  createPublicKey,
+  randomUUID,
+  timingSafeEqual,
+} from 'crypto';
 
 export interface RegisterApiKeyDto {
   name: string;
@@ -20,7 +25,7 @@ export class AuthService {
     private readonly apiKeyRepo: ApiKeyRepository,
     private readonly orgRepo: organizationRepository,
     private readonly auditLogRepo: AuditLogRepository,
-  ) { }
+  ) {}
 
   async registerApiKey(
     orgId: string,
@@ -48,28 +53,49 @@ export class AuthService {
       );
     }
 
-    const existingKey = await this.apiKeyRepo.findById(data.publicKey);
-    if (existingKey) {
-      throw new BadRequestException(
-        'An API key with the same public key already exists',
-      );
-    }
+    // Validate the public key is a real P-256 SPKI PEM before storing it —
+    // a garbage row can never authenticate and only pollutes the table.
+    this.assertP256PublicKey(data.publicKey);
 
     // Generate key_id
     const keyId = randomUUID();
 
-    // Create API key. Default scope is '*' (unrestricted) per
-    // docs/STAMP_AUTH.md — callers should narrow it explicitly.
+    // Scope policy: the first (bootstrap) key may default to '*' — the
+    // bootstrap token is single-use and equivalent to full org ownership.
+    // Any subsequent stamp-authenticated registration must declare explicit
+    // scopes; minting additional unrestricted keys would defeat per-key
+    // permissions (docs/STAMP_AUTH.md).
+    const scopes = data.scopes || ['*'];
+    if (requestingKeyId && scopes.includes('*')) {
+      throw new BadRequestException(
+        'Wildcard scope "*" is only allowed for the first (bootstrap) API key; specify explicit scopes',
+      );
+    }
+
     const apiKeyData: NewApiKey = {
       org_id: orgId,
       name: data.name,
       public_key: data.publicKey,
       key_id: keyId,
-      scopes: data.scopes || ['*'],
+      scopes,
       status: 'active',
     };
 
-    const apiKey = await this.apiKeyRepo.create(apiKeyData);
+    let apiKey: ApiKey;
+    try {
+      apiKey = await this.apiKeyRepo.create(apiKeyData);
+    } catch (err) {
+      // The public_key column is unique — surface a duplicate cleanly
+      // instead of leaking a 500 (the DB constraint, not a pre-check,
+      // is the race-safe arbiter).
+      const pgErr = err as { code?: string } | undefined;
+      if (pgErr?.code === '23505') {
+        throw new BadRequestException(
+          'An API key with the same public key already exists',
+        );
+      }
+      throw err;
+    }
 
     // Clear bootstrap token if used
     if (bootstrapToken) {
@@ -184,5 +210,28 @@ export class AuthService {
     await this.orgRepo.update(orgId, { bootstrap_token_hash: hash });
 
     return token;
+  }
+
+  /**
+   * Rejects anything that is not an SPKI PEM-encoded P-256 (secp256r1)
+   * public key. Mirrors what StampVerifierGuard needs for crypto.verify —
+   * a key that fails this check can never produce a valid stamp, so
+   * registering it is always a mistake.
+   */
+  private assertP256PublicKey(pem: string): void {
+    try {
+      const key = createPublicKey(pem);
+      const jwk = key.export({ format: 'jwk' }) as { crv?: string };
+      if (key.asymmetricKeyType !== 'ec' || jwk.crv !== 'P-256') {
+        throw new BadRequestException(
+          'publicKey must be an EC P-256 (secp256r1) SPKI PEM public key',
+        );
+      }
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException(
+        'publicKey must be a valid P-256 (secp256r1) SPKI PEM public key',
+      );
+    }
   }
 }

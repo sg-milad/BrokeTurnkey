@@ -49,6 +49,13 @@ export class StampVerifierGuard implements CanActivate {
     }
 
     const [signatureB64, timestampMs, keyId] = parts;
+
+    // Strict timestamp format: a plain millisecond integer. parseInt would
+    // accept trailing garbage ("1718000000000x") and leading zeros, which a
+    // strict client could never have signed — reject those outright.
+    if (!/^\d{1,16}$/.test(timestampMs)) {
+      throw new UnauthorizedException('Invalid timestamp in stamp');
+    }
     const timestamp = parseInt(timestampMs, 10);
 
     if (isNaN(timestamp)) {

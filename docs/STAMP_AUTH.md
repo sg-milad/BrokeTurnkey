@@ -288,8 +288,11 @@ scopes  jsonb  [not null, default: '["*"]', note: 'Array of permitted actions e.
 **Why:** Not all API keys should be able to do everything. A key used by an
 automated signing service should not be able to create new wallets or revoke
 other keys. Scopes allow per-key permission restriction. The `*` wildcard
-means unrestricted, which is the default; the code creates keys with `['*']`
-unless narrower scopes are supplied at registration.
+means unrestricted. The first (bootstrap) key defaults to `['*']` — the
+bootstrap token is single-use and equivalent to full org ownership — but any
+stamp-authenticated registration must declare explicit scopes; `'*'` is
+rejected for those (the service layer enforces this in
+`AuthService.registerApiKey`).
 
 Scope enforcement is live on these routes (a global `ScopesGuard` rejects
 with `403 insufficient_scope`):
@@ -343,14 +346,18 @@ After the first API key is registered, the platform sets
 `bootstrap_token_hash = null`, permanently disabling the bootstrap flow for
 that org.
 
-> **Known issue (current code):** the service layer implements this flow
-> (`AuthService.registerApiKey` validates the token via `validateBootstrapToken`
-> with a constant-time comparison, then nulls the hash), but the
-> `ApiKeysController` has not been wired to read the `X-Bootstrap-Token`
-> header or the stamp context yet — it passes `undefined` for both, so the
-> route currently always returns
-> `400 "Either bootstrap token or valid API key required"`. Wiring the
-> controller is a prerequisite for the global stamp guard.
+> **Bootstrap flow (implemented):** `POST /api-keys` accepts either a valid
+> stamp (from a key with `key:write` scope) or the one-time
+> `X-Bootstrap-Token` header. The controller reads both
+> (`ApiKeysController.registerApiKey`): the org is resolved from the stamp
+> context, or from the bootstrap token via
+> `AuthService.resolveOrgIdFromBootstrapToken`. `AuthService.registerApiKey`
+> validates the token with a constant-time comparison
+> (`validateBootstrapToken`), then nulls `bootstrap_token_hash` so the
+> bootstrap flow is permanently disabled for that org after the first key.
+> The bootstrap token is also stored hashed (SHA-256) — see the schema note
+> below — and never returned after the initial `POST /organizations`
+> response.
 
 ---
 
