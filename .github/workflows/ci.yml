@@ -44,7 +44,12 @@ jobs:
     services:
       vault:
         # Dev mode (image default): initialized + unsealed on startup.
+        # VAULT_DEV_ROOT_TOKEN_ID pins the root token so the setup script
+        # (and the vault CLI) can authenticate deterministically — without
+        # it the dev server generates a random token we cannot read.
         image: hashicorp/vault:1.17
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root
         ports:
           - 8200:8200
         options: --cap-add IPC_LOCK

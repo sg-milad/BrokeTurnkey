@@ -54,6 +54,16 @@ else
   "$VAULT_BIN" operator unseal "$UNSEAL_KEY" >/dev/null
 fi
 
+# Verify the token actually works before running the setup commands — a
+# mismatch (e.g. a dev-mode server started with a different
+# VAULT_DEV_ROOT_TOKEN_ID) otherwise surfaces as a cryptic 403 later.
+if ! "$VAULT_BIN" token lookup >/dev/null 2>&1; then
+  echo "[ci-vault-setup] ERROR: cannot authenticate to Vault at $VAULT_ADDR with the configured token." >&2
+  echo "  Dev-mode server: start it with VAULT_DEV_ROOT_TOKEN_ID=root (or export the same" >&2
+  echo "  value here via VAULT_DEV_ROOT_TOKEN_ID). Sealed server: check init/unseal output." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Shared setup: transit engine, wallet-dek key ring, wallet-signer AppRole.
 # Mirrors docs/VAULT_INIT.md Steps 5-7 (minimal policy — tests only need
