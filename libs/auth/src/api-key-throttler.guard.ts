@@ -2,13 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 /**
- * Rate limiter keyed by API key (from the X-Stamp header) when the request
- * carries one, falling back to the client IP for public/anonymous routes.
+ * Rate limiter keyed by the VERIFIED API key when the request carries a
+ * valid stamp, falling back to the client IP for public/anonymous routes.
  *
- * Limitation: an unauthenticated attacker can rotate fake key_ids to get
- * fresh buckets. That hole closes once StampVerifierGuard is enforced
- * globally (the stamp's key_id is then validated before throttling matters).
- * For legitimate API keys the per-key limit works as documented.
+ * StampVerifierGuard runs before this guard (global guard order in
+ * api.module.ts) and attaches the verified key identity to request.user.
+ * Tracking `request.user.apiKeyId` instead of the raw key_id from the
+ * X-Stamp header means an attacker cannot rotate fake key_ids to get a
+ * fresh bucket per request — unverified stamps are rejected with 401 before
+ * the throttler ever sees them.
  *
  * TODO: Storage is in-memory (default ThrottlerStorage). When running more
  * than one API instance, rate limits become per-instance and effectively
@@ -18,12 +20,11 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 @Injectable()
 export class ApiKeyThrottlerGuard extends ThrottlerGuard {
   protected getTracker(req: Record<string, any>): Promise<string> {
-    const stamp = (req.headers as Record<string, string>)['x-stamp'];
-    if (stamp) {
-      const keyId = stamp.split('.')[2];
-      if (keyId) {
-        return Promise.resolve(`key:${keyId}`);
-      }
+    // Only trust identities attached by StampVerifierGuard. Never derive
+    // the tracker from unvalidated header content.
+    const user = req.user as { apiKeyId?: string } | undefined;
+    if (user?.apiKeyId) {
+      return Promise.resolve(`key:${user.apiKeyId}`);
     }
     return Promise.resolve(`ip:${req.ip ?? 'unknown'}`);
   }

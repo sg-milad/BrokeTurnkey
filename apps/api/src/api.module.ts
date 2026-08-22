@@ -32,11 +32,14 @@ import {
     MonitorModule,
   ],
   providers: [
-    // Global guards run in registration order. Rate limiting first (so floods
-    // are rejected cheaply), then stamp verification, then scope enforcement.
-    { provide: APP_GUARD, useClass: ApiKeyThrottlerGuard },
+    // Global guards run in registration order. Stamp verification MUST run
+    // before the rate limiter: the throttler keys on the *verified* API key
+    // (request.user.apiKeyId), so the identity has to be established first.
+    // Tracking unverified key_ids from the X-Stamp header would let an
+    // attacker rotate fake key_ids to get a fresh bucket per request.
     { provide: APP_GUARD, useClass: StampVerifierGuard },
+    { provide: APP_GUARD, useClass: ApiKeyThrottlerGuard },
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
 })
-export class ApiModule { }
+export class ApiModule {}
