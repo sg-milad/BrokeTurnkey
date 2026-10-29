@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# backup.sh — backs up Vault data volume, Postgres data volume, and .env
+# backup.sh — backs up Vault data volume, Postgres data volume, and .env.operator
 # Run from the project root: bash scripts/backup.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$PROJECT_ROOT/.env"
+ENV_FILE="$PROJECT_ROOT/.env.operator"
 BACKUP_DIR="$PROJECT_ROOT/backups"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_PATH="$BACKUP_DIR/$TIMESTAMP"
@@ -21,21 +21,21 @@ die()  { echo "[backup] ERROR: $*" >&2; exit 1; }
 
 # ----------------------------------------------------------------
 
-[ -f "$ENV_FILE" ] || die ".env not found at $PROJECT_ROOT/.env"
+[ -f "$ENV_FILE" ] || die ".env.operator not found at $PROJECT_ROOT/.env.operator"
 
 source "$ENV_FILE"
 
-[ -n "${VAULT_UNSEAL_KEY_1:-}" ] || die "VAULT_UNSEAL_KEY_1 not set in .env — refusing to back up without unseal keys present"
-[ -n "${VAULT_UNSEAL_KEY_2:-}" ] || die "VAULT_UNSEAL_KEY_2 not set in .env"
+[ -n "${VAULT_UNSEAL_KEY_1:-}" ] || die "VAULT_UNSEAL_KEY_1 not set in .env.operator — refusing to back up without unseal keys present"
+[ -n "${VAULT_UNSEAL_KEY_2:-}" ] || die "VAULT_UNSEAL_KEY_2 not set in .env.operator"
 
 mkdir -p "$BACKUP_PATH"
 
 # ----------------------------------------------------------------
-# 1. Back up .env (contains unseal keys — critical)
+# 1. Back up .env.operator (contains unseal keys — critical)
 # ----------------------------------------------------------------
-log "Backing up .env..."
-cp "$ENV_FILE" "$BACKUP_PATH/env.bak"
-chmod 600 "$BACKUP_PATH/env.bak"
+log "Backing up .env.operator (operator secrets)..."
+cp "$ENV_FILE" "$BACKUP_PATH/operator-env.bak"
+chmod 600 "$BACKUP_PATH/operator-env.bak"
 
 # ----------------------------------------------------------------
 # 2. Back up Vault data volume
@@ -68,7 +68,7 @@ Created:  $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 Hostname: $(hostname)
 
 Contents:
-  env.bak              — .env file (contains unseal keys — keep this secure)
+  operator-env.bak     — .env.operator (contains unseal keys — keep this secure)
   vault-data.tar.gz    — Vault data volume ($VAULT_VOLUME)
   postgres-data.tar.gz — Postgres data volume ($POSTGRES_VOLUME)
 

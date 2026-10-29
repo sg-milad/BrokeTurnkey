@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { hashTypedData, hashMessage } from 'viem';
+import { hashTypedData, hashMessage, isAddress } from 'viem';
 import type { TypedDataDefinition } from 'viem';
 import { CryptoClientService } from '@app/crypto-client';
 import {
@@ -36,29 +36,18 @@ export class SigningService {
    * Sign EIP-712 typed data. Constructs the hash using viem's hashTypedData,
    * then delegates to the Go sidecar for raw secp256k1 signing.
    *
-   * sign-hash is an unrestricted signing oracle by design (the Go service
-   * signs whatever 32-byte hash it is given), so NestJS gates the surface:
-   * the EIP-712 domain must be on the configured allowlist before a hash is
-   * ever produced. Configure EIP712_DOMAIN_ALLOWLIST as a comma-separated
-   * list of allowed domain names; empty means "allow all" (default).
+   * EIP-712 is a permit-style signing oracle if left open. NestJS requires
+   * every dimension of the domain (name, chainId, verifyingContract) and the
+   * primaryType to be explicitly allowlisted. Empty allowlists deny by default.
    */
   async signEip712(
     orgId: string,
     walletId: string,
     req: Eip712SignRequest,
   ): Promise<TypedSignResult> {
-    const { seedRow, wallet } = await this.loadWallet(orgId, walletId);
+    this.assertEip712Allowed(req);
 
-    const allowlist = this.getDomainAllowlist();
-    if (allowlist.length > 0) {
-      const domainName = (req.domain as Record<string, unknown> | undefined)
-        ?.name as string | undefined;
-      if (!domainName || !allowlist.includes(domainName)) {
-        throw new ForbiddenException(
-          `EIP-712 domain "${domainName ?? '(none)'}" is not allowlisted`,
-        );
-      }
-    }
+    const { seedRow, wallet } = await this.loadWallet(orgId, walletId);
 
     // Construct the EIP-712 hash in NestJS — Go is schema-unaware
     const hash = hashTypedData({
@@ -107,6 +96,12 @@ export class SigningService {
     walletId: string,
     req: PersonalMessageSignRequest,
   ): Promise<TypedSignResult> {
+    if (!this.getBoolean('PERSONAL_MESSAGE_SIGNING_ENABLED', false)) {
+      throw new ForbiddenException(
+        'Personal message signing is disabled (PERSONAL_MESSAGE_SIGNING_ENABLED=false)',
+      );
+    }
+
     const { seedRow, wallet } = await this.loadWallet(orgId, walletId);
 
     // Construct the personal sign hash in NestJS
@@ -156,11 +151,80 @@ export class SigningService {
     return { seedRow, wallet };
   }
 
-  private getDomainAllowlist(): string[] {
-    const raw = this.config.get<string>('EIP712_DOMAIN_ALLOWLIST') ?? '';
+  private getCsv(key: string): string[] {
+    const raw = this.config.get<string>(key) ?? '';
     return raw
       .split(',')
-      .map((name) => name.trim())
+      .map((value) => value.trim())
       .filter(Boolean);
+  }
+
+  private getBoolean(key: string, fallback: boolean): boolean {
+    const raw = this.config.get<string>(key);
+    if (raw === undefined || raw === null || raw === '') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
+  }
+
+  private assertEip712Allowed(req: Eip712SignRequest): void {
+    const domain = req.domain ?? {};
+
+    const domains = this.getCsv('EIP712_DOMAIN_ALLOWLIST');
+    const domainName = typeof domain['name'] === 'string' ? domain['name'] : '';
+    if (domains.length === 0 || !domainName || !domains.includes(domainName)) {
+      throw new ForbiddenException(
+        `EIP-712 domain "${domainName || '(none)'}" is not allowlisted`,
+      );
+    }
+
+    const chainIds = this.getCsv('EIP712_ALLOWED_CHAIN_IDS')
+      .map((value) => Number(value))
+      .filter((value) => Number.isSafeInteger(value) && value > 0);
+    const rawChainId = domain['chainId'];
+    const chainId =
+      typeof rawChainId === 'number'
+        ? rawChainId
+        : typeof rawChainId === 'bigint'
+          ? Number(rawChainId)
+          : typeof rawChainId === 'string' && /^\d+$/.test(rawChainId)
+            ? Number(rawChainId)
+            : undefined;
+    if (
+      chainIds.length === 0 ||
+      chainId === undefined ||
+      !chainIds.includes(chainId)
+    ) {
+      throw new ForbiddenException(
+        `EIP-712 chainId "${chainId ?? '(none)'}" is not allowlisted`,
+      );
+    }
+
+    const contracts = this.getCsv('EIP712_ALLOWED_CONTRACTS').map((value) =>
+      value.toLowerCase(),
+    );
+    const contract =
+      typeof domain['verifyingContract'] === 'string'
+        ? domain['verifyingContract'].toLowerCase()
+        : '';
+    if (
+      contracts.length === 0 ||
+      !contract ||
+      !isAddress(contract) ||
+      !contracts.includes(contract)
+    ) {
+      throw new ForbiddenException(
+        `EIP-712 verifyingContract "${contract || '(none)'}" is not allowlisted`,
+      );
+    }
+
+    const primaryTypes = this.getCsv('EIP712_ALLOWED_PRIMARY_TYPES');
+    if (
+      primaryTypes.length === 0 ||
+      !req.primaryType ||
+      !primaryTypes.includes(req.primaryType)
+    ) {
+      throw new ForbiddenException(
+        `EIP-712 primaryType "${req.primaryType || '(none)'}" is not allowlisted`,
+      );
+    }
   }
 }

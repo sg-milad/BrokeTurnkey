@@ -19,6 +19,25 @@ export interface RegisterApiKeyDto {
   scopes?: string[];
 }
 
+// The bootstrap key is an ownership credential, not a signing credential.
+// It may manage keys/wallets/policies but cannot move funds until the operator
+// mints a separate key with `wallet:sign`.
+export const BOOTSTRAP_DEFAULT_SCOPES = [
+  'key:read',
+  'key:write',
+  'wallet:read',
+  'wallet:create',
+  'policy:read',
+  'policy:write',
+  'user:read',
+  'user:write',
+] as const;
+
+const VALID_SCOPES = new Set<string>([
+  ...BOOTSTRAP_DEFAULT_SCOPES,
+  'wallet:sign',
+]);
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -60,15 +79,29 @@ export class AuthService {
     // Generate key_id
     const keyId = randomUUID();
 
-    // Scope policy: the first (bootstrap) key may default to '*' — the
-    // bootstrap token is single-use and equivalent to full org ownership.
-    // Any subsequent stamp-authenticated registration must declare explicit
-    // scopes; minting additional unrestricted keys would defeat per-key
-    // permissions (docs/STAMP_AUTH.md).
-    const scopes = data.scopes || ['*'];
-    if (requestingKeyId && scopes.includes('*')) {
+    // Scope policy: never mint wildcard keys. The bootstrap key gets a safe
+    // management default (no wallet:sign); any later stamp-authenticated
+    // registration must declare explicit scopes.
+    const requestedScopes =
+      data.scopes && data.scopes.length > 0 ? data.scopes : undefined;
+    if (!requestedScopes && !bootstrapToken) {
       throw new BadRequestException(
-        'Wildcard scope "*" is only allowed for the first (bootstrap) API key; specify explicit scopes',
+        'Scopes are required for stamp-authenticated API key registration',
+      );
+    }
+    const scopes = requestedScopes
+      ? [...requestedScopes]
+      : [...BOOTSTRAP_DEFAULT_SCOPES];
+
+    if (scopes.includes('*')) {
+      throw new BadRequestException(
+        'Wildcard scope "*" is not allowed; specify explicit scopes',
+      );
+    }
+    const unknownScopes = scopes.filter((scope) => !VALID_SCOPES.has(scope));
+    if (unknownScopes.length > 0) {
+      throw new BadRequestException(
+        `Unknown scope(s): ${unknownScopes.join(', ')}`,
       );
     }
 

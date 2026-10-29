@@ -131,7 +131,7 @@ describe('PolicyService', () => {
   describe('evaluate', () => {
     const tx = { to: '0xabc', value: '1000', chainId: 1 };
 
-    it('skips a wallet-targeted policy for a different wallet', async () => {
+    it('denies by default when no policy applies to the wallet', async () => {
       const policy = activePolicy('p-target', 'address_blocklist', {
         addresses: ['0xabc'],
       });
@@ -140,7 +140,20 @@ describe('PolicyService', () => {
       policyRepo.findByOrgId.mockResolvedValue([policy]);
 
       await expect(service.evaluate('org-1', 'w-other', tx)).resolves.toEqual({
-        decision: 'allow',
+        decision: 'deny',
+        reason: 'No applicable active policy for this wallet',
+      });
+      expect(auditLogRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'denied' }),
+      );
+    });
+
+    it('denies by default when the org has no active policies', async () => {
+      policyRepo.findByOrgId.mockResolvedValue([]);
+
+      await expect(service.evaluate('org-1', 'w-1', tx)).resolves.toEqual({
+        decision: 'deny',
+        reason: 'No applicable active policy for this wallet',
       });
     });
 
@@ -298,17 +311,66 @@ describe('PolicyService', () => {
       expect(auditLogRepo.create).toHaveBeenCalledTimes(1);
     });
 
-    it('falls through unknown rule types and allows', async () => {
+    it('fails closed on unknown rule types', async () => {
       policyRepo.findByOrgId.mockResolvedValue([
         activePolicy('p-5', 'custom_rule', {}),
       ]);
 
       await expect(service.evaluate('org-1', 'w-1', tx)).resolves.toEqual({
-        decision: 'allow',
+        decision: 'deny',
+        reason: 'Policy p-5 has invalid configuration',
       });
       expect(auditLogRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'allowed' }),
+        expect.objectContaining({ status: 'denied' }),
       );
+    });
+
+    it('allows allowlisted calldata selectors', async () => {
+      policyRepo.findByOrgId.mockResolvedValue([
+        activePolicy('p-6', 'calldata_allowlist', {
+          entries: [
+            {
+              to: '0x1111111111111111111111111111111111111111',
+              selector: '0xa9059cbb',
+            },
+          ],
+        }),
+      ]);
+
+      await expect(
+        service.evaluate('org-1', 'w-1', {
+          to: '0x1111111111111111111111111111111111111111',
+          value: '0',
+          chainId: 1,
+          dataSelector: '0xa9059cbb',
+        }),
+      ).resolves.toEqual({ decision: 'allow' });
+    });
+
+    it('denies calldata selectors outside the allowlist', async () => {
+      policyRepo.findByOrgId.mockResolvedValue([
+        activePolicy('p-6', 'calldata_allowlist', {
+          entries: [
+            {
+              to: '0x1111111111111111111111111111111111111111',
+              selector: '0xa9059cbb',
+            },
+          ],
+        }),
+      ]);
+
+      await expect(
+        service.evaluate('org-1', 'w-1', {
+          to: '0x1111111111111111111111111111111111111111',
+          value: '0',
+          chainId: 1,
+          dataSelector: '0xdeadbeef',
+        }),
+      ).resolves.toEqual({
+        decision: 'deny',
+        reason:
+          'Calldata selector 0xdeadbeef on 0x1111111111111111111111111111111111111111 is not allowlisted',
+      });
     });
   });
 });

@@ -32,16 +32,15 @@ openssl rand -hex 32
 # example output: 4f2a9c1e... (64 hex chars)
 ```
 
-Put it in `.env` (gitignored — never commit it):
+Put the **same** value in `.env.api` and `.env.crypto` (both gitignored):
 
-```
-# .env
+```bash
+# .env.api and .env.crypto
 CRYPTO_AUTH_TOKEN=4f2a9c1e...
 ```
 
-Both the `api` and `crypto` containers load `.env` (see `docker-compose.yml`).
-> Production note: give each service its own env file (e.g. `.env.crypto`) so
-> the API container never holds the token it does not need.
+Each container loads only its own file (see `docker-compose.yml`). The API
+never receives `VAULT_*`; the crypto container never receives DB/RPC secrets.
 
 ### How to test the token works
 
@@ -66,16 +65,46 @@ curl -s -X POST http://localhost:4000/wallet/create \
 
 ## Environment variables
 
-| Variable            | Required | Description                                                       |
-| ------------------- | -------- | ----------------------------------------------------------------- |
-| `VAULT_ADDR`        | yes      | Vault base URL, e.g. `http://vault:8200`                          |
-| `VAULT_ROLE_ID`     | yes      | AppRole RoleID for the `wallet-signer` role (not secret)          |
-| `VAULT_SECRET_ID`   | yes      | AppRole SecretID (secret — rotate every 30 days, see VAULT_INIT.md) |
-| `CRYPTO_AUTH_TOKEN` | yes      | Shared secret required on every request (see above)               |
-| `CRYPTO_PORT`       | no       | Listen port (default `4000`)                                      |
+| Variable                        | Required | Description                                                          |
+| ------------------------------- | -------- | -------------------------------------------------------------------- |
+| `VAULT_ADDR`                    | yes      | Vault base URL, e.g. `http://vault:8200`                             |
+| `VAULT_ROLE_ID`                 | yes      | AppRole RoleID for the `wallet-signer` role (not secret)             |
+| `VAULT_SECRET_ID`               | yes      | AppRole SecretID (secret — rotate every 30 days, see VAULT_INIT.md)  |
+| `CRYPTO_AUTH_TOKEN`             | yes      | Shared secret required on every request (see above)                  |
+| `CRYPTO_PORT`                   | no       | Listen port (default `4000`)                                         |
+| `SIGNER_MAX_VALUE_WEI`          | no       | Max native value per tx; empty/`0` denies all value transfers        |
+| `SIGNER_ALLOWED_CHAIN_IDS`      | no       | Comma-separated chain IDs; empty allows all                          |
+| `SIGNER_ALLOWED_TO`             | no       | Comma-separated destination addresses; empty allows all              |
+| `SIGNER_ALLOWED_SELECTORS`      | no       | `to:0xselector` pairs; empty denies **all** non-empty calldata       |
+| `SIGNER_ALLOW_CONTRACT_CREATION`| no       | Allow `to=""`; default `false`                                       |
+| `SIGNER_ALLOW_HASH_SIGNING`     | no       | Allow `/wallet/sign-hash`; default `false`                           |
+| `SIGNER_MAX_GAS_LIMIT`          | no       | Max gasLimit; default `1000000`, `0` denies all transactions         |
 
 The service fails to start if `VAULT_ADDR`, `VAULT_ROLE_ID`,
 `VAULT_SECRET_ID`, or `CRYPTO_AUTH_TOKEN` are missing.
+
+### Signer-side hard limits
+
+These are the crypto service's last line of defense, enforced **before** a
+seed is decrypted or a key is derived. They are independent of (and additional
+to) NestJS policy. Defaults are fail-closed:
+
+- Value defaults to `0`; set `SIGNER_MAX_VALUE_WEI` to permit transfers.
+- Non-empty calldata is denied unless the exact `to` + 4-byte selector is in
+  `SIGNER_ALLOWED_SELECTORS`.
+- Contract creation is denied unless explicitly enabled.
+- `/wallet/sign-hash` returns `403` unless `SIGNER_ALLOW_HASH_SIGNING=true`.
+- `SIGNER_MAX_GAS_LIMIT` caps every transaction.
+
+Example (1 ETH cap, Base Sepolia, one ERC-20 `transfer` selector):
+
+```bash
+SIGNER_MAX_VALUE_WEI=1000000000000000000
+SIGNER_ALLOWED_CHAIN_IDS=84532
+SIGNER_ALLOWED_TO=0xYourRecipient
+SIGNER_ALLOWED_SELECTORS=0xToken:0xa9059cbb
+SIGNER_ALLOW_HASH_SIGNING=false
+```
 
 ---
 
@@ -227,15 +256,20 @@ curl -s -X POST http://localhost:4000/wallet/sign-transaction \
 
 `rawTx` is what you hand to `eth_sendRawTransaction`.
 
+Before decrypting, the handler enforces `SIGNER_*` limits. Violations return
+`403` with an error such as `transaction value exceeds signer limit`,
+`destination not allowed by signer`, or `calldata selector not allowed by signer`.
+
 ---
 
 ### `POST /wallet/sign-hash`
 
 Signs a raw 32-byte hash with the derived key. No encoding, no
 interpretation — used for EIP-712 typed data and EIP-191 personal messages
-(the caller constructs the hash). This is a **signing oracle by design**:
-NestJS gates it (scope checks + EIP-712 domain allowlist) — see
-`docs/STAMP_AUTH.md` and `docs/TASKS.md`.
+(the caller constructs the hash). Raw hash signing is an oracle, so the Go
+service disables it unless `SIGNER_ALLOW_HASH_SIGNING=true`; NestJS also
+requires the EIP-712 domain/chain/contract/primaryType to be explicitly
+allowlisted, and personal-message signing is off by default.
 
 Request:
 
@@ -258,7 +292,8 @@ Response `200 OK`:
 ```
 
 The hash must be exactly 32 bytes — anything else is rejected with
-`400 {"error":"hash must be 32 bytes, got N"}`.
+`400 {"error":"hash must be 32 bytes, got N"}`. If raw hash signing is
+disabled, the response is `403 {"error":"raw hash signing disabled by signer"}`.
 
 ---
 

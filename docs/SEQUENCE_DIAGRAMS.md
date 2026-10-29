@@ -325,7 +325,7 @@ sequenceDiagram
 
     C->>API: POST /wallets/:id/sign-typed (X-Stamp) {domain, types, primaryType, message}
     API->>API: Verify stamp signature
-    API->>API: Check domain.name against EIP712_DOMAIN_ALLOWLIST (if configured)
+    API->>API: Require domain name/chainId/contract + primaryType allowlists (empty = deny)
 
     API->>DB: SELECT wallet (derivationPath, orgId)
     DB-->>API: wallet row
@@ -338,7 +338,7 @@ sequenceDiagram
 
     WS->>GO: POST /wallet/sign-hash {encryptedSeed, seedNonce, encryptedDek, derivationPath, hashHex}
 
-    note over GO: Signs raw hash — no schema awareness
+    note over GO: SIGNER_ALLOW_HASH_SIGNING=false by default; rejects before decrypt
     GO->>V: POST /v1/transit/decrypt/wallet-dek {ciphertext: "vault:v1:..."}
     V-->>GO: {plaintext: base64(DEK)}
     GO->>GO: AES-256-GCM decrypt(encryptedSeed, DEK, nonce) → seed
@@ -443,10 +443,10 @@ The Go crypto service does **not** self-rotate the SecretID. It is valid for
 the TTL expires:
 
 ```bash
-source .env.vault
+set -a; source .env.operator; set +a
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
-# then update VAULT_SECRET_ID in .env and restart the crypto container
+# then update VAULT_SECRET_ID in .env.crypto and restart the crypto container
 ```
 
 > Historical note: an earlier design had the Go service generate a new

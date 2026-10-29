@@ -2,7 +2,7 @@
 # swaps the API service to the dev target (watch mode + host bind mount).
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   docker compose --env-file .env.api -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
 # The base compose file intentionally does NOT publish these ports and runs
 # the production API target:
@@ -12,11 +12,11 @@
 services:
   vault:
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
 
   postgres:
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   api:
     build:
@@ -24,7 +24,17 @@ services:
     environment:
       # Override the base compose file's production NODE_ENV.
       NODE_ENV: development
+    # Mount only source/config, never the repository root. The root contains
+    # .env.api/.env.crypto/.env.operator on developer machines; a full-root
+    # bind mount would expose those secrets to the API container and to any
+    # code execution inside it.
     volumes:
-      - .:/app
+      - ./apps:/app/apps
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json:ro
+      - ./package.json:/app/package.json:ro
+      - ./pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tsconfig.build.json:/app/tsconfig.build.json:ro
       - /app/node_modules
     command: pnpm run start:dev api

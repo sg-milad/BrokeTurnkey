@@ -11,9 +11,10 @@ client request is authenticated by a P-256 "stamp" header — see docs/STAMP_AUT
 ## Dev environment
 
 - pnpm workspace (pnpm@11.20.0 via `packageManager`). Never use npm/yarn; install with `pnpm install --frozen-lockfile`. Node 22 in CI.
-- Copy `.env.example` to `.env` (gitignored; `.env*` is ignored, `.env.example` is force-added). Required: `POSTGRES_PASSWORD`, `CRYPTO_AUTH_TOKEN` (`openssl rand -hex 32`), `VAULT_ROLE_ID`, `VAULT_SECRET_ID`. Compose refuses to start without `POSTGRES_PASSWORD`.
-- Full stack: `docker compose up -d` (Postgres + Vault). Vault init/unseal runbook: docs/VAULT_INIT.md, scripts/unseal.sh.
-- Local `.env`, `.env.crypto`, `.env.vault` exist on dev machines — never read, print, or commit them.
+- Env is split by trust boundary (gitignored; only `*.example` files are tracked): copy `.env.example` → `.env.api`, `.env.crypto.example` → `.env.crypto`, `.env.operator.example` → `.env.operator`. Required: `POSTGRES_PASSWORD`, `CRYPTO_AUTH_TOKEN` (`openssl rand -hex 32`, identical in `.env.api` and `.env.crypto`), `VAULT_ROLE_ID`/`VAULT_SECRET_ID` (crypto only). Compose refuses to start without `POSTGRES_PASSWORD`. Never put Vault/unseal material in `.env.api`.
+- Dev stack: `docker compose --env-file .env.api -f docker-compose.yml -f docker-compose.dev.yml up -d` (host ports bound to 127.0.0.1; API source mounted without the repo root). Prod-like stack: `docker compose --env-file .env.api up -d`. Vault init/unseal runbook: docs/VAULT_INIT.md, scripts/unseal.sh (reads `.env.operator`).
+- Local `.env.api`, `.env.crypto`, `.env.operator`, and legacy `.env*` files exist on dev machines — never read, print, or commit them.
+- Operator commands that need Vault credentials must use `.env.operator`, for example: `set -a; source .env.operator; set +a`.
 
 ## Build & test
 
@@ -55,5 +56,5 @@ docs/ is the contract — code that diverges from it is a bug, not a docs proble
 - TypeScript must stay on 5.x. TypeScript 7 (the Go port) lacks the compiler API that Nest CLI, ts-jest, and typescript-eslint require — tooling breaks.
 - `pnpm run test:e2e` points at a stale path (`./apps/wallet2/test/jest-e2e.json`); the real config is `apps/api/test/jest-e2e.json`. Fix the script before relying on e2e.
 - `pnpm run lint` uses `--fix` — it rewrites files, not just reports.
-- Do not add plaintext key handling to the NestJS side or broaden the Go service's signing surface (it is a pure signing oracle by design — policy/allowlist gating belongs in NestJS, see C-1).
+- Do not add plaintext key handling to the NestJS side. The Go service is no longer a pure signing oracle: it enforces `SIGNER_*` hard limits (value, chain, destination, selector, gas, raw-hash signing) before decrypting key material — see docs/CRYPTO_SERVICE.md. NestJS policy/allowlists remain the primary authorization layer; keep both.
 - dist/, node_modules/, and all `.env*` files are gitignored.

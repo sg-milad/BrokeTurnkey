@@ -42,7 +42,12 @@ lerna-debug.log*
 .env.production.local
 .env.local
 .env.crypto
+.env.api
+.env.operator
 .env*
+!.env.example
+!.env.crypto.example
+!.env.operator.example
 
 # temp directory
 .temp

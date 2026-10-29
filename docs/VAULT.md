@@ -91,7 +91,7 @@ never see them again.
 ### Step 3 — Unseal
 
 ```bash
-source .env
+set -a; source .env.operator; set +a
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_1"
 docker exec walletmvp-vault vault operator unseal "$VAULT_UNSEAL_KEY_2"
 ```
@@ -116,33 +116,22 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
 WalletMVP uses a single AppRole (`wallet-signer`) for the Go crypto service.
 NestJS has no AppRole and no Vault credentials.
 
-**Create the policy** — scoped to encrypt and decrypt only:
-
-```hcl
-# wallet-signer-policy.hcl
-path "transit/encrypt/wallet-dek" {
-  capabilities = ["update"]
-}
-path "transit/decrypt/wallet-dek" {
-  capabilities = ["update"]
-}
-path "auth/approle/role/wallet-signer/secret-id" {
-  capabilities = ["update"]
-}
-```
-
-The third path exists so a human operator can generate replacement SecretIDs
-for the manual 30-day rotation (see below). The Go service itself does **not**
-rotate the SecretID at runtime.
-
-> Note: the values below (30-day SecretID TTL, unlimited uses) are the
-> current runbook configuration — `docs/VAULT_INIT.md` is authoritative.
+**Create the runtime policy** — scoped to encrypt/decrypt only. It deliberately
+does **not** include the `secret-id` path: a compromised crypto container must
+not be able to mint new SecretIDs. The policy lives in
+`vault/policies/wallet-signer.hcl`.
 
 ```bash
-docker cp /tmp/wallet-signer-policy.hcl walletmvp-vault:/tmp/
+docker cp vault/policies/wallet-signer.hcl walletmvp-vault:/tmp/
 
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
-  vault policy write wallet-signer /tmp/wallet-signer-policy.hcl
+  vault policy write wallet-signer /tmp/wallet-signer.hcl
+
+# Operator-only policy for manual SecretID rotation (never attach to the
+# crypto service's role/token).
+docker cp vault/policies/wallet-operator.hcl walletmvp-vault:/tmp/
+docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
+  vault policy write wallet-operator /tmp/wallet-operator.hcl
 
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault auth enable approle
@@ -156,26 +145,25 @@ docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
     secret_id_num_uses=0
 ```
 
-Read the RoleID (not sensitive — safe to store in config):
+Read the RoleID (not sensitive — safe to store in config) and generate the
+first SecretID using an operator token carrying `wallet-operator` (or root):
 
 ```bash
+# .env.operator (never loaded by a container)
+set -a; source .env.operator; set +a
+
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault read auth/approle/role/wallet-signer/role-id
-```
-
-Generate the first SecretID (treat like a password):
-
-```bash
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
-Add to the Go crypto service's env:
+Put the results in `.env.crypto` (never `.env.api`):
 
 ```bash
 VAULT_ROLE_ID=REPLACE_ME
 VAULT_SECRET_ID=REPLACE_ME
-CRYPTO_AUTH_TOKEN=REPLACE_ME   # shared secret with the NestJS API — see docs/CRYPTO_SERVICE.md
+CRYPTO_AUTH_TOKEN=REPLACE_ME   # same value as .env.api — see docs/CRYPTO_SERVICE.md
 ```
 
 ### Step 6 — Enable audit logging
@@ -218,12 +206,18 @@ unlimited uses (`secret_id_num_uses=0`). It is **not** self-rotated by the Go
 service — you must rotate it before the TTL expires:
 
 ```bash
-source .env
+set -a; source .env.operator; set +a
 docker exec -e VAULT_TOKEN="$VAULT_ROOT_TOKEN" walletmvp-vault \
   vault write -f auth/approle/role/wallet-signer/secret-id
 ```
 
-Then update `VAULT_SECRET_ID` in `.env` and restart the crypto container.
+Then update `VAULT_SECRET_ID` in `.env.crypto` and restart the crypto
+container:
+
+```bash
+docker compose --env-file .env.api up -d --force-recreate crypto
+```
+
 The full procedure is in `docs/VAULT_INIT.md` (section "SecretID Rotation").
 
 > Historical note: an earlier design used a single-use, 10-minute SecretID

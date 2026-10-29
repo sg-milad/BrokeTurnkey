@@ -17,6 +17,8 @@ export interface TxPayload {
   dataHash?: string;
   /** Length of the raw calldata hex string (including "0x" prefix). */
   dataLength?: number;
+  /** First 4 bytes of calldata (0x-prefixed), when present. */
+  dataSelector?: string;
 }
 
 @Injectable()
@@ -69,9 +71,25 @@ export class PolicyService {
     txPayload: TxPayload,
   ): Promise<PolicyEvaluationResult> {
     const policies = await this.policyRepo.findByOrgId(orgId, 'active');
+    const applicable = policies.filter((policy) =>
+      this.appliesToWallet(policy, walletId),
+    );
 
-    for (const policy of policies) {
-      if (!this.appliesToWallet(policy, walletId)) continue;
+    // Default-deny: a signing request with no applicable active policy is not
+    // authorized. Operators must create a baseline allowlist/spend_limit rule.
+    if (applicable.length === 0) {
+      const reason = 'No applicable active policy for this wallet';
+      await this.auditLogRepo.create({
+        org_id: orgId,
+        wallet_id: walletId,
+        event: 'policy_evaluation',
+        status: 'denied',
+        metadata: { reason, txPayload },
+      });
+      return { decision: 'deny', reason };
+    }
+
+    for (const policy of applicable) {
       const result = this.evaluateRule(policy, txPayload);
       if (result.decision === 'deny') {
         // Log denied evaluation
@@ -100,7 +118,7 @@ export class PolicyService {
       event: 'policy_evaluation',
       status: 'allowed',
       metadata: {
-        policiesChecked: policies.length,
+        policiesChecked: applicable.length,
         txPayload,
       },
     });
@@ -161,6 +179,26 @@ export class PolicyService {
         break;
       }
 
+      case 'calldata_allowlist': {
+        const entries = config['entries'];
+        if (!this.isCalldataAllowlist(entries)) {
+          return this.invalidConfig(policy);
+        }
+        if (!txPayload.dataSelector) break; // plain transfer, no calldata
+        const allowed = entries.some(
+          (entry) =>
+            entry.to === txPayload.to.toLowerCase() &&
+            entry.selector === txPayload.dataSelector?.toLowerCase(),
+        );
+        if (!allowed) {
+          return {
+            decision: 'deny',
+            reason: `Calldata selector ${txPayload.dataSelector} on ${txPayload.to} is not allowlisted`,
+          };
+        }
+        break;
+      }
+
       case 'time_lock': {
         if (
           typeof config['start_time'] !== 'string' ||
@@ -188,8 +226,9 @@ export class PolicyService {
       }
 
       default:
-        // Unknown rule type, allow by default
-        break;
+        // Unknown rule types are a configuration error, not permission to
+        // sign. Fail closed.
+        return this.invalidConfig(policy);
     }
 
     return { decision: 'allow' };
@@ -206,6 +245,21 @@ export class PolicyService {
     return (
       Array.isArray(value) &&
       value.every((address) => typeof address === 'string')
+    );
+  }
+
+  private isCalldataAllowlist(
+    value: unknown,
+  ): value is Array<{ to: string; selector: string }> {
+    return (
+      Array.isArray(value) &&
+      value.every(
+        (entry) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          typeof (entry as Record<string, unknown>).to === 'string' &&
+          typeof (entry as Record<string, unknown>).selector === 'string',
+      )
     );
   }
 
@@ -260,6 +314,34 @@ export class PolicyService {
           );
         }
         return { max_amount_wei: maxAmount };
+      }
+      case 'calldata_allowlist': {
+        const entries = config.entries;
+        if (
+          !Array.isArray(entries) ||
+          !entries.every((entry) => {
+            if (typeof entry !== 'object' || entry === null) return false;
+            const candidate = entry as Record<string, unknown>;
+            return (
+              typeof candidate.to === 'string' &&
+              isAddress(candidate.to) &&
+              typeof candidate.selector === 'string' &&
+              /^0x[0-9a-fA-F]{8}$/.test(candidate.selector)
+            );
+          })
+        ) {
+          throw new BadRequestException(
+            'calldata_allowlist ruleConfig.entries must be an array of { to, selector } with a valid address and 4-byte selector',
+          );
+        }
+        return {
+          entries: (entries as Array<{ to: string; selector: string }>).map(
+            (entry) => ({
+              to: entry.to.toLowerCase(),
+              selector: entry.selector.toLowerCase(),
+            }),
+          ),
+        };
       }
       case 'time_lock': {
         const start = config.start_time;

@@ -457,12 +457,12 @@ contracts/                new top-level directory
 
 ```
 1. Deploy SimpleAccountFactory.sol to Base Sepolia (testnet)
-   → save FACTORY_ADDRESS in .env
+   → save FACTORY_ADDRESS in .env.api
 
 2. Register with Pimlico
    → get free Bundler RPC URL
    → get free Paymaster RPC URL
-   → save BUNDLER_RPC_URL, PAYMASTER_RPC_URL, PIMLICO_API_KEY in .env
+   → save BUNDLER_RPC_URL, PAYMASTER_RPC_URL, PIMLICO_API_KEY in .env.api
 
 3. Add POST /wallet/sign-userop to Go sidecar
    → identical to /wallet/sign but signs a raw 32-byte hash (the userOpHash)

@@ -275,6 +275,10 @@ export class WalletService {
       chainId: req.chainId,
       dataHash: createHash('sha256').update(req.data).digest('hex'),
       dataLength: req.data.length,
+      dataSelector:
+        req.data && req.data.length >= 10
+          ? req.data.slice(0, 10).toLowerCase()
+          : undefined,
     };
     const policyResult = await this.policyService.evaluate(
       orgId,

@@ -42,6 +42,8 @@ func TestParseDerivIndex_Invalid(t *testing.T) {
 		{"too short", "m/44'/60'/0'"},
 		{"too long", "m/44'/60'/0'/0/5/extra"},
 		{"bad index", "m/44'/60'/0'/0/abc"},
+		{"wrong coin type", "m/44'/0'/0'/0/5"},
+		{"wrong account branch", "m/44'/60'/0'/1/5"},
 		{"empty", ""},
 	}
 	for _, tt := range tests {

@@ -34,19 +34,26 @@ export class CreatePolicyDto {
   @ApiProperty({
     example: 'address_blocklist',
     description:
-      'Type of rule to enforce. Supported types: address_allowlist, address_blocklist, spend_limit, time_lock.',
+      'Type of rule to enforce. Supported types: address_allowlist, address_blocklist, spend_limit, time_lock, calldata_allowlist.',
     enum: [
       'address_allowlist',
       'address_blocklist',
       'spend_limit',
       'time_lock',
+      'calldata_allowlist',
     ],
     maxLength: 50,
   })
   @IsString()
   @MinLength(1)
   @MaxLength(50)
-  @IsIn(['address_allowlist', 'address_blocklist', 'spend_limit', 'time_lock'])
+  @IsIn([
+    'address_allowlist',
+    'address_blocklist',
+    'spend_limit',
+    'time_lock',
+    'calldata_allowlist',
+  ])
   ruleType!: string;
 
   @ApiProperty({
@@ -57,7 +64,8 @@ export class CreatePolicyDto {
       'Rule configuration. Shapes per ruleType:\n' +
       '- address_allowlist / address_blocklist: { "addresses": string[] }\n' +
       '- spend_limit: { "max_amount_wei": string }\n' +
-      '- time_lock: { "start_time": ISO string, "end_time": ISO string }',
+      '- time_lock: { "start_time": ISO string, "end_time": ISO string }\n' +
+      '- calldata_allowlist: { "entries": [{ "to": address, "selector": "0x12345678" }] }',
     type: Object,
   })
   @IsObject()

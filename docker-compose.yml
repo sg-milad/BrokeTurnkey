@@ -4,7 +4,7 @@ services:
     container_name: walletmvp-vault
     restart: unless-stopped
     # Port 8200 is intentionally NOT published to the host — Vault is only
-    # reachable on walletmvp-network. For local UI / manual unseal, use
+    # reachable on vault-internal. For local UI / manual unseal, use
     # docker-compose.dev.yml (see file) or `docker exec`.
     environment:
       VAULT_ADDR: "http://0.0.0.0:8200"
@@ -17,7 +17,7 @@ services:
       - CAP_SETFCAP
     command: vault server -config=/vault/config/vault.hcl
     networks:
-      - walletmvp-network
+      - vault-internal
 
   postgres:
     image: postgres:16
@@ -26,16 +26,17 @@ services:
     # Port 5432 is intentionally NOT published to the host. The API container
     # reaches Postgres via the docker network; host-side tooling (psql,
     # drizzle-kit studio) should use docker-compose.dev.yml or a docker exec.
-    # The password is required — set POSTGRES_PASSWORD in .env (gitignored).
+    # The password is required — set POSTGRES_PASSWORD in .env.api and run
+    # compose with --env-file .env.api (interpolation does not use env_file).
     # Never use a well-known default for a wallet platform database.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.api}
       POSTGRES_DB: ${POSTGRES_DB:-walletmvp}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - walletmvp-network
+      - app-internal
 
   crypto:
     build:
@@ -44,14 +45,15 @@ services:
       target: production
     container_name: walletmvp-crypto
     restart: unless-stopped
-    # No ports exposed to host — reachable only on walletmvp-network.
+    # No ports exposed to host — reachable only on vault-internal/app-internal.
     # Requests are additionally authenticated with CRYPTO_AUTH_TOKEN.
     env_file:
-      - .env
+      - .env.crypto
     depends_on:
       - vault
     networks:
-      - walletmvp-network
+      - vault-internal
+      - app-internal
 
   api:
     build:
@@ -63,24 +65,34 @@ services:
     # 3000 is the only port a client ever needs. The production target runs
     # the compiled app as a non-root user with no host repo mount. For local
     # development (watch mode, host bind mount, Swagger) use:
-    #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+    #   docker compose --env-file .env.api -f docker-compose.yml -f docker-compose.dev.yml up
     ports:
       - "3000:3000"
     environment:
-      # Overrides NODE_ENV=development in .env.example — the base compose
+      # Overrides NODE_ENV=development in .env.api — the base compose
       # file is the production wiring. Dev overrides live in
       # docker-compose.dev.yml.
       NODE_ENV: production
     env_file:
-      - .env
+      - .env.api
     depends_on:
       - postgres
       - crypto
     networks:
-      - walletmvp-network
+      - app-internal
+      - egress
 
 networks:
-  walletmvp-network:
+  # Vault is reachable only by the crypto sidecar. The API is not attached.
+  vault-internal:
+    driver: bridge
+    internal: true
+  # API <-> Postgres <-> crypto. No internet route.
+  app-internal:
+    driver: bridge
+    internal: true
+  # API-only internet egress for RPC providers.
+  egress:
     driver: bridge
 
 volumes:

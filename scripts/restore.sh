@@ -27,7 +27,7 @@ confirm() {
 [ -d "$BACKUP_PATH" ] || die "Backup directory not found: $BACKUP_PATH"
 [ -f "$BACKUP_PATH/vault-data.tar.gz" ]    || die "vault-data.tar.gz missing from backup"
 [ -f "$BACKUP_PATH/postgres-data.tar.gz" ] || die "postgres-data.tar.gz missing from backup"
-[ -f "$BACKUP_PATH/env.bak" ]              || die "env.bak missing from backup"
+[ -f "$BACKUP_PATH/operator-env.bak" ]     || die "operator-env.bak missing from backup"
 
 log "Backup found: $BACKUP_PATH"
 cat "$BACKUP_PATH/MANIFEST.txt" 2>/dev/null || true
@@ -40,18 +40,18 @@ confirm "This will STOP all containers and OVERWRITE current Vault + Postgres da
 # ----------------------------------------------------------------
 log "Stopping containers..."
 cd "$PROJECT_ROOT"
-docker compose down 2>/dev/null || true
+docker compose --env-file "$PROJECT_ROOT/.env.api" down 2>/dev/null || true
 
 # ----------------------------------------------------------------
-# 2. Restore .env
+# 2. Restore .env.operator
 # ----------------------------------------------------------------
-if [ -f "$PROJECT_ROOT/.env" ]; then
-  log "Backing up current .env to .env.before-restore..."
-  cp "$PROJECT_ROOT/.env" "$PROJECT_ROOT/.env.before-restore"
+if [ -f "$PROJECT_ROOT/.env.operator" ]; then
+  log "Backing up current .env.operator to .env.operator.before-restore..."
+  cp "$PROJECT_ROOT/.env.operator" "$PROJECT_ROOT/.env.operator.before-restore"
 fi
-log "Restoring .env..."
-cp "$BACKUP_PATH/env.bak" "$PROJECT_ROOT/.env"
-chmod 600 "$PROJECT_ROOT/.env"
+log "Restoring .env.operator..."
+cp "$BACKUP_PATH/operator-env.bak" "$PROJECT_ROOT/.env.operator"
+chmod 600 "$PROJECT_ROOT/.env.operator"
 
 # ----------------------------------------------------------------
 # 3. Restore Vault volume
@@ -94,7 +94,7 @@ log "  → postgres-data restored and ownership fixed (UID 999:999)"
 # ----------------------------------------------------------------
 log ""
 log "Starting containers..."
-docker compose up -d
+docker compose --env-file "$PROJECT_ROOT/.env.api" up -d
 
 log "Unsealing Vault..."
 bash "$SCRIPT_DIR/unseal.sh"

@@ -3,18 +3,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/.env"
+ENV_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/.env.operator"
 VAULT_CONTAINER="walletmvp-vault"
 MAX_WAIT=60  # seconds
 
 log() { echo "[unseal] $*"; }
 die() { echo "[unseal] ERROR: $*" >&2; exit 1; }
 
-[ -f "$ENV_FILE" ] || die ".env not found — run vault operator init first"
+[ -f "$ENV_FILE" ] || die ".env.operator not found — create it from .env.operator.example after vault operator init"
 source "$ENV_FILE"
 
-[ -n "${VAULT_UNSEAL_KEY_1:-}" ] || die "VAULT_UNSEAL_KEY_1 not set in .env"
-[ -n "${VAULT_UNSEAL_KEY_2:-}" ] || die "VAULT_UNSEAL_KEY_2 not set in .env"
+[ -n "${VAULT_UNSEAL_KEY_1:-}" ] || die "VAULT_UNSEAL_KEY_1 not set in .env.operator"
+[ -n "${VAULT_UNSEAL_KEY_2:-}" ] || die "VAULT_UNSEAL_KEY_2 not set in .env.operator"
 
 # vault status exits 0 (unsealed), 1 (error/unreachable), or 2 (sealed).
 # Exit code 2 means Vault is up but sealed — that's "ready" for our purposes.
@@ -62,5 +62,5 @@ SEALED_AFTER=$(docker exec "$VAULT_CONTAINER" \
 if [ "$SEALED_AFTER" = "False" ]; then
   log "Vault is unsealed."
 else
-  die "Vault is still sealed after submitting both keys — check keys in .env"
+  die "Vault is still sealed after submitting both keys — check keys in .env.operator"
 fi

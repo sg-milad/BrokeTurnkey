@@ -19,7 +19,9 @@ import {
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig],
-      envFilePath: '.env',
+      // API-only env file. Never fall back to a shared .env that may contain
+      // Vault AppRole credentials or unseal material.
+      envFilePath: '.env.api',
     }),
     // Per-key / per-IP rate limiting (docs/TASKS.md Phase 8). Default:
     // 120 requests per minute per tracker. Storage is in-memory — use a

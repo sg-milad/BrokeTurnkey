@@ -123,44 +123,67 @@ scripts/
 
 ## Getting started
 
-1. **Prepare `.env`** — copy `.env.example` and fill in the required values:
+1. **Prepare split env files** — each trust boundary gets its own file:
 
    ```bash
-   cp .env.example .env
-   # .env is gitignored — never commit it.
+   cp .env.example .env.api                    # API: DB, crypto token, RPC, allowlists
+   cp .env.crypto.example .env.crypto          # crypto sidecar: Vault + SIGNER_* limits
+   cp .env.operator.example .env.operator      # operator only: root token + unseal keys
+   chmod 600 .env.api .env.crypto .env.operator
+   # All are gitignored — never commit them. Never load .env.operator in a container.
    ```
 
    Required values:
 
    ```bash
-   # Postgres — docker compose refuses to start without this
+   # POSTGRES_PASSWORD in .env.api — compose refuses to start without it
    POSTGRES_PASSWORD=change-me-please
 
-   # Shared secret between the NestJS API and the Go crypto service.
-   # Generate one with:  openssl rand -hex 32
+   # Same value in .env.api and .env.crypto. Generate with: openssl rand -hex 32
    CRYPTO_AUTH_TOKEN=<64 hex chars>
 
-   # Vault AppRole credentials (see docs/VAULT_INIT.md)
+   # .env.crypto only (see docs/VAULT_INIT.md)
    VAULT_ROLE_ID=...
    VAULT_SECRET_ID=...
    ```
 
-2. **Start all containers**: `docker compose up -d`
+   `SIGNER_*` limits in `.env.crypto` are enforced by Go **before** it decrypts
+   a seed. Keep them conservative; `SIGNER_ALLOW_HASH_SIGNING=false` disables
+   EIP-712/EIP-191 until you explicitly allowlist domains in `.env.api`.
 
-   > The base compose file does **not** publish Postgres (5432) or Vault
-   > (8200) to the host. If you need them for local tooling (psql,
-   > drizzle-kit studio, Vault UI), use the dev override:
-   > `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`
+2. **Start the dev stack**:
 
-3. **Initialise and unseal Vault** (see `docs/VAULT_INIT.md`)
+   ```bash
+   docker compose --env-file .env.api -f docker-compose.yml -f docker-compose.dev.yml up -d
+   ```
+
+   Prod-like (no host ports, production API image, no source mount):
+
+   ```bash
+   docker compose --env-file .env.api up -d
+   ```
+
+   > Vault (8200) and Postgres (5432) are never internet-reachable. The dev
+   > override binds them to `127.0.0.1` only. The base stack attaches Vault to
+   > its own internal network and the crypto sidecar to both Vault and the app
+   > network; the API has no route to Vault.
+
+3. **Initialise and unseal Vault** (see `docs/VAULT_INIT.md`). Operator
+   commands source `.env.operator`:
+
+   ```bash
+   set -a; source .env.operator; set +a
+   bash scripts/unseal.sh
+   ```
 
 4. Run database migrations: `pnpm db:push`
 
-5. Start the NestJS API: `pnpm run start:dev api`
+5. For host-side development only, start the NestJS API: `pnpm run start:dev api`
+   (the dev container already runs it; the host process needs `.env.api`).
 
-6. The Go crypto service starts automatically as a Docker container.
-   Verify it: `curl http://localhost:4000/health` (or with the dev override
-   — see `docs/CRYPTO_SERVICE.md` for full usage).
+6. The Go crypto service starts automatically. It is not published to the host;
+   verify from inside the stack (or with the dev override) — see
+   `docs/CRYPTO_SERVICE.md`.
 
 7. Make your first request (see walkthrough below).
 
@@ -185,11 +208,15 @@ curl -s -X POST http://localhost:3000/api-keys \
   -H 'Content-Type: application/json' \
   -H 'X-Bootstrap-Token: <bootstrapToken>' \
   -d '{
-    "name": "prod",
+    "name": "prod-admin",
     "publicKey": "<contents of public.pem with \\n escapes>",
-    "scopes": ["*"]
+    "scopes": ["key:write", "wallet:read", "wallet:create", "policy:write"]
   }'
 # → { "keyId": "ak_prod_abc123", ... }
+
+# 3. A signing key must be registered separately with wallet:sign.
+#    Wildcard "*" is rejected. Signing also needs at least one applicable
+#    active policy (create one before the first sign request).
 ```
 
 ## Feature Tasks

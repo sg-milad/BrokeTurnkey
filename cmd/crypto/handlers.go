@@ -233,6 +233,12 @@ func HandleSignTx(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce the sidecar's hard limits before touching any key material.
+	if err := validateSignTxLimits(txFields); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	// 1. Decrypt seed
 	seed, dek, err := decryptOrgSeed(req.EncryptedSeed, req.SeedNonce, req.EncryptedDek)
 	if err != nil {
@@ -318,6 +324,13 @@ func HandleSignHash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Raw hash signing is a signing oracle (EIP-712/EIP-191 permits). It is
+	// disabled unless the operator explicitly enables it.
+	if err := validateHashSigning(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	// 1. Decrypt seed
 	seed, dek, err := decryptOrgSeed(req.EncryptedSeed, req.SeedNonce, req.EncryptedDek)
 	if err != nil {
@@ -386,7 +399,7 @@ func decryptOrgSeed(encSeedB64, nonceB64, encDek string) (seed, dek []byte, err 
 // parseDerivIndex extracts the last integer from "m/44'/60'/0'/0/5".
 func parseDerivIndex(path string) (uint32, error) {
 	parts := strings.Split(path, "/")
-	if len(parts) != 6 {
+	if len(parts) != 6 || parts[0] != "m" || parts[1] != "44'" || parts[2] != "60'" || parts[3] != "0'" || parts[4] != "0" {
 		return 0, fmt.Errorf("invalid derivation path format: %s", path)
 	}
 	indexStr := parts[5]

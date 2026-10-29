@@ -27,9 +27,11 @@ export class CreateApiKeyDto {
   publicKey!: string;
 
   @ApiPropertyOptional({
-    example: ['key:write', 'key:read'],
+    example: ['key:write', 'wallet:read'],
     description:
-      'Scopes granted to this API key. Defaults to ["*"] (unrestricted) when omitted.',
+      'Scopes granted to this API key. Bootstrap registrations default to a ' +
+      'safe management set (no wallet:sign); stamp-authenticated registrations ' +
+      'must specify scopes explicitly. Wildcard "*" is rejected.',
     type: [String],
   })
   @IsOptional()

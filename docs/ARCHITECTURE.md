@@ -161,7 +161,9 @@ replay attacks even if TLS is terminated upstream.
 
 - Evaluates spend limits (per-transaction and rolling window)
 - Checks address allowlists and blocklists
+- Checks calldata `to` + 4-byte selector allowlists
 - Enforces time locks (e.g. no signing outside business hours)
+- Denies by default when no active policy applies to the wallet
 - Reads policy rules from the `policies` table
 - Returns allow/deny decision to WalletService before any signing call
 
@@ -228,15 +230,19 @@ All key material — plaintext or ciphertext — is handled exclusively here.
 
 **Hardening:** request bodies are capped at 1 MiB, the HTTP server enforces
 read/write/idle timeouts and a header cap, and every transaction field
-(chainId, value, gas, fees, `to` address) is validated before it can
-influence a signature.
+(chainId, value, gas, fees, `to` address) is validated before it can influence
+a signature. Independent `SIGNER_*` hard limits (max value, chain/recipient/
+selector allowlists, gas cap, raw-hash signing switch) are enforced **before**
+the seed is decrypted; raw hash signing is off by default.
 
 **Vault identity:** `wallet-signer` AppRole — policy scoped to
-`transit/encrypt/wallet-dek` and `transit/decrypt/wallet-dek` only.
+`transit/encrypt/wallet-dek` and `transit/decrypt/wallet-dek` only. The runtime
+policy deliberately cannot mint SecretIDs; `wallet-operator` is a separate
+human-only policy.
 
-**Communication:** Listens on `CRYPTO_PORT` (env var). Accessible only on
-the internal Docker network (`walletmvp-network`). NestJS calls it via
-`http://crypto:${CRYPTO_PORT}` with the `X-Crypto-Token` header. See
+**Communication:** Listens on `CRYPTO_PORT` (env var). Attached only to the
+internal `vault-internal` and `app-internal` Docker networks. NestJS calls it
+via `http://crypto:${CRYPTO_PORT}` with the `X-Crypto-Token` header. See
 `docs/CRYPTO_SERVICE.md` for the full endpoint reference.
 
 ---
@@ -263,9 +269,10 @@ Docker container. It plays one narrow role: KEK (Key Encryption Key) store.
 
 - Does not store seeds, private keys, or any wallet data
 - Does not communicate with NestJS — only the Go crypto service
-- Does not expose any endpoint outside the Docker internal network. Port 8200
-  is **not published to the host by default** — use
-  `docker-compose.dev.yml` for local UI / manual unseal access
+- Does not expose any endpoint outside the Docker internal network. It is only
+  on `vault-internal` (crypto sidecar); the API has no route to Vault. Port
+  8200 is **not published to the host by default** — use
+  `docker-compose.dev.yml` (binds 127.0.0.1) for local UI / manual unseal
 
 **Protection model:** The Vault master key is split into 3 Shamir shares
 (threshold: 2). Vault is sealed on every restart and must be manually

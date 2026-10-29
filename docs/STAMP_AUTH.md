@@ -282,17 +282,18 @@ Two columns were proposed for the stamp system. Current status:
 ### Implemented: `scopes`
 
 ```
-scopes  jsonb  [not null, default: '["*"]', note: 'Array of permitted actions e.g. ["wallet:sign", "key:write"] or ["*"] for all']
+scopes  jsonb  [not null, default: '[]', note: 'Array of permitted actions e.g. ["wallet:sign", "key:write"]']
 ```
 
 **Why:** Not all API keys should be able to do everything. A key used by an
 automated signing service should not be able to create new wallets or revoke
-other keys. Scopes allow per-key permission restriction. The `*` wildcard
-means unrestricted. The first (bootstrap) key defaults to `['*']` — the
-bootstrap token is single-use and equivalent to full org ownership — but any
-stamp-authenticated registration must declare explicit scopes; `'*'` is
-rejected for those (the service layer enforces this in
-`AuthService.registerApiKey`).
+other keys. Scopes allow per-key permission restriction. The first (bootstrap)
+key defaults to a safe management set (`key:read`, `key:write`, `wallet:read`,
+`wallet:create`, `policy:read`, `policy:write`, `user:read`, `user:write`) with
+**no** `wallet:sign`. Every stamp-authenticated registration must declare
+explicit scopes. `'*'` is rejected for all new registrations (the service layer
+enforces this in `AuthService.registerApiKey`); legacy `*` rows still pass the
+guard.
 
 Scope enforcement is live on these routes (a global `ScopesGuard` rejects
 with `403 insufficient_scope`):
@@ -302,7 +303,6 @@ with `403 insufficient_scope`):
 
 Scope values (initial set):
 
-- `*` — all actions (default)
 - `wallet:create` — derive new wallet addresses
 - `wallet:sign` — sign transactions
 - `wallet:read` — read wallet details and history

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { createHash, generateKeyPairSync } from 'crypto';
-import { AuthService } from './auth.service';
+import { AuthService, BOOTSTRAP_DEFAULT_SCOPES } from './auth.service';
 import { ApiKeyRepository, organizationRepository } from '@app/db/repositories';
 import { AuditLogRepository } from '@app/db/repositories/audit-log.repository';
 
@@ -20,12 +20,17 @@ const publicKeyPem = testKeyPairPublic.export({
 
 describe('AuthService', () => {
   let service: AuthService;
-  let apiKeyRepo: jest.Mocked<Pick<
-    ApiKeyRepository,
-    'create' | 'update' | 'findByKeyId' | 'findByOrgId' | 'hasScope'
-  >>;
+  let apiKeyRepo: jest.Mocked<
+    Pick<
+      ApiKeyRepository,
+      'create' | 'update' | 'findByKeyId' | 'findByOrgId' | 'hasScope'
+    >
+  >;
   let orgRepo: jest.Mocked<
-    Pick<organizationRepository, 'findById' | 'findByBootstrapTokenHash' | 'update'>
+    Pick<
+      organizationRepository,
+      'findById' | 'findByBootstrapTokenHash' | 'update'
+    >
   >;
   let auditLogRepo: jest.Mocked<Pick<AuditLogRepository, 'create'>>;
 
@@ -175,9 +180,9 @@ describe('AuthService', () => {
       });
     });
 
-    it('defaults scopes to ["*"] for bootstrap registrations', async () => {
+    it('defaults bootstrap scopes to a safe management set without wallet:sign', async () => {
       orgRepo.findById.mockResolvedValue(org);
-      apiKeyRepo.create.mockImplementation(async (data) => ({
+      apiKeyRepo.create.mockImplementation((data) => ({
         ...apiKeyRow,
         scopes: data.scopes,
       }));
@@ -189,11 +194,13 @@ describe('AuthService', () => {
       );
 
       expect(apiKeyRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ scopes: ['*'] }),
+        expect.objectContaining({ scopes: [...BOOTSTRAP_DEFAULT_SCOPES] }),
       );
+      expect(BOOTSTRAP_DEFAULT_SCOPES).not.toContain('wallet:sign');
+      expect(BOOTSTRAP_DEFAULT_SCOPES).not.toContain('*');
     });
 
-    it('rejects wildcard "*" scope for stamp-authenticated registrations', async () => {
+    it('requires explicit scopes for stamp-authenticated registrations', async () => {
       orgRepo.findById.mockResolvedValue(org);
       apiKeyRepo.hasScope.mockResolvedValue(true);
 
@@ -204,9 +211,41 @@ describe('AuthService', () => {
           undefined,
           'key-1',
         ),
+      ).rejects.toThrow('Scopes are required');
+
+      expect(apiKeyRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects wildcard "*" scope for all registrations', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+      apiKeyRepo.hasScope.mockResolvedValue(true);
+
+      await expect(
+        service.registerApiKey(
+          'org-1',
+          { name: 'Key', publicKey: publicKeyPem, scopes: ['*'] },
+          undefined,
+          'key-1',
+        ),
       ).rejects.toThrow('Wildcard scope');
 
       expect(apiKeyRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown scopes', async () => {
+      orgRepo.findById.mockResolvedValue(org);
+
+      await expect(
+        service.registerApiKey(
+          'org-1',
+          {
+            name: 'Key',
+            publicKey: publicKeyPem,
+            scopes: ['wallet:sign', 'typo:scope'],
+          },
+          'bootstrap-token',
+        ),
+      ).rejects.toThrow('Unknown scope(s): typo:scope');
     });
 
     it('rejects a public key that is not a valid P-256 SPKI PEM', async () => {
@@ -359,9 +398,8 @@ describe('AuthService', () => {
     it('hashes the token and resolves the org id', async () => {
       orgRepo.findByBootstrapTokenHash.mockResolvedValue(org);
 
-      const result = await service.resolveOrgIdFromBootstrapToken(
-        'bootstrap-token',
-      );
+      const result =
+        await service.resolveOrgIdFromBootstrapToken('bootstrap-token');
 
       expect(orgRepo.findByBootstrapTokenHash).toHaveBeenCalledWith(
         sha256Hex('bootstrap-token'),
@@ -386,7 +424,10 @@ describe('AuthService', () => {
         service.validateBootstrapToken('missing', 'token'),
       ).rejects.toThrow('No bootstrap token available for this organization');
 
-      orgRepo.findById.mockResolvedValue({ ...org, bootstrap_token_hash: null });
+      orgRepo.findById.mockResolvedValue({
+        ...org,
+        bootstrap_token_hash: null,
+      });
       await expect(
         service.validateBootstrapToken('org-1', 'token'),
       ).rejects.toThrow('No bootstrap token available for this organization');
@@ -423,7 +464,10 @@ describe('AuthService', () => {
 
   describe('generateBootstrapToken', () => {
     it('returns a token and stores its sha256 hash on the org', async () => {
-      orgRepo.update.mockResolvedValue({ ...org, bootstrap_token_hash: 'hash' });
+      orgRepo.update.mockResolvedValue({
+        ...org,
+        bootstrap_token_hash: 'hash',
+      });
 
       const token = await service.generateBootstrapToken('org-1');
 

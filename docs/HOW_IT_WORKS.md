@@ -12,7 +12,7 @@ and `VAULT_INIT.md`. For cryptographic decisions see `KEY_MANAGEMENT.md`.
 ## The four services and their roles
 
 WalletMVP runs four Docker containers on a shared internal network
-(`walletmvp-network`). None of them are optional.
+(`vault-internal`, `app-internal`, plus API egress). None of them are optional.
 
 **NestJS API** is the only service clients ever talk to. It handles HTTP
 routing, stamp authentication, policy enforcement, gas estimation, nonce
@@ -222,8 +222,9 @@ service.
 
 Go signs the raw hash bytes without any awareness of the schema or message
 type. The caller (NestJS) is responsible for constructing the hash correctly.
-This keeps the Go service as a narrow signing oracle and avoids encoding
-EIP-712 schema logic in Go.
+Raw hash signing is disabled in Go unless `SIGNER_ALLOW_HASH_SIGNING=true`;
+NestJS additionally requires explicit EIP-712 domain/chain/contract/type
+allowlists and disables personal-message signing by default.
 
 ---
 
@@ -236,12 +237,18 @@ rules in order:
 - **address_blocklist** — rejects if `to` is on the list
 - **address_allowlist** — rejects if `to` is not on the list (when the list is non-empty)
 - **spend_limit** — rejects if `value` exceeds `max_amount_wei`
+- **calldata_allowlist** — rejects non-empty calldata unless `to` + selector is listed
 - **rolling_spend** — rejects if cumulative `value` in the last 24 hours would exceed the limit
 - **time_lock** — rejects if current UTC time is outside the configured window
 
+If no active policy applies to the wallet, the engine denies by default.
 A denial returns `403` with the reason and the signing request is never
 created. Nothing is logged to `signing_requests` on denial — only a
 `policy_evaluation` event in `audit_log`.
+
+After policy, the Go sidecar enforces independent `SIGNER_*` hard limits
+(value, chain, destination, calldata selector, gas, raw-hash signing) before
+decrypting the seed.
 
 ---
 
@@ -262,8 +269,9 @@ and one in Vault.
 
 ## How API keys and scopes work
 
-Every API key has a `scopes` array. The default is `["*"]` (all actions). A
-narrowed key can be locked to specific operations:
+Every API key has a `scopes` array. No new key can receive `*`; the bootstrap
+key defaults to management scopes only (no `wallet:sign`). A key can be locked
+to specific operations:
 
 - `wallet:read` — read wallets and signing history
 - `wallet:create` — derive new wallet addresses

@@ -62,15 +62,23 @@ The `StampVerifierGuard` (`@app/auth`) intercepts every incoming request:
 
 #### Scopes
 
-Every API key carries a `scopes` array. A `*` scope grants everything; a
-narrowed key can only perform the listed actions. Scope checks are enforced
-by a global `ScopesGuard`:
+Every API key carries a `scopes` array. New keys never receive `*`; the
+bootstrap key defaults to a safe management set (`key:read`, `key:write`,
+`wallet:read`, `wallet:create`, `policy:read`, `policy:write`, `user:read`,
+`user:write`) **without** `wallet:sign`. Scope checks are enforced by a global
+`ScopesGuard`:
 
 | Action                     | Required scope |
 | -------------------------- | -------------- |
 | Register / revoke API keys | `key:write`    |
 | Create / delete users      | `key:write`    |
 | Create / delete policies   | `policy:write` |
+| Read wallets/policies      | `wallet:read`  |
+| Derive wallets             | `wallet:create`|
+| Sign transactions/messages | `wallet:sign`  |
+
+Legacy rows containing `*` still pass every scope check, but `*` is rejected at
+registration. Create a separate `wallet:sign` key when signing is needed.
 
 A key without the required scope gets `403 {"statusCode":403,"message":"insufficient_scope","error":"Forbidden"}`.
 
@@ -218,10 +226,14 @@ The `PolicyEngine` (`@app/policy`) evaluates the request against configured rule
 
 - Spend limits (per-transaction and rolling window)
 - Address allowlists and blocklists
+- Calldata `to` + 4-byte selector allowlists
 - Time locks (e.g., business-hours-only restrictions)
 
-If any policy check fails, the request is rejected immediately with a descriptive
-error. No cryptographic operations are performed.
+**Default-deny:** if the org has no active policy applicable to the wallet, the
+request is rejected (`403 Policy denied: No applicable active policy for this
+wallet`). Create a baseline policy before signing. If any policy check fails,
+the request is rejected immediately with a descriptive error; no cryptographic
+operations are performed.
 
 #### Phase 2: Fee Estimation & Nonce Management
 
@@ -374,10 +386,13 @@ reaching business logic, using `class-validator` decorators at the DTO layer:
 
 - `POST /wallets/:id/sign-transaction` — the server assigns the nonce itself;
   `txFields.nonce` is **optional** and ignored if provided.
-- `POST /wallets/:id/sign-message` — `message` is capped at 4096 characters.
-- `POST /wallets/:id/sign-typed` — EIP-712 `domain.name` must be on the
-  `EIP712_DOMAIN_ALLOWLIST` env allowlist when it is non-empty (empty =
-  allow all domains).
+- `POST /wallets/:id/sign-message` — `message` is capped at 4096 characters and
+  the route is disabled unless `PERSONAL_MESSAGE_SIGNING_ENABLED=true`.
+- `POST /wallets/:id/sign-typed` — every dimension must be explicitly
+  allowlisted: `domain.name` (`EIP712_DOMAIN_ALLOWLIST`), `domain.chainId`
+  (`EIP712_ALLOWED_CHAIN_IDS`), `domain.verifyingContract`
+  (`EIP712_ALLOWED_CONTRACTS`), and `primaryType`
+  (`EIP712_ALLOWED_PRIMARY_TYPES`). Empty lists deny all typed signing.
 
 Invalid requests return `400 Bad Request` with an array of messages listing
 all validation failures (see Errors).
@@ -629,7 +644,7 @@ Register the public key using the bootstrap token from Step 1:
 ```bash
 BOOTSTRAP_TOKEN=<bootstrapToken> \
   ./api-keys.sh register "prod" ./public.pem
-# → { "id": "...", "keyId": "<key-id>", "name": "prod", "scopes": ["*"], "createdAt": "..." }
+# → { "id": "...", "keyId": "<key-id>", "name": "prod", "scopes": ["key:read", ...], "createdAt": "..." }
 ```
 
 Save the returned `keyId` — export it as `KEY_ID` for all subsequent script calls.
@@ -653,7 +668,8 @@ export PRIVATE_KEY=./private.pem
 # → { "id": "<policy-id>", "ruleType": "address_blocklist", "status": "active", ... }
 ```
 
-Other supported rule types: `address_allowlist`, `spend_limit`, `time_lock`.
+Other supported rule types: `address_allowlist`, `spend_limit`, `time_lock`,
+`calldata_allowlist` (`{"entries":[{"to":"0x...","selector":"0xa9059cbb"}]}`).
 See `policy-block-address.json`, `policy-allowlist.json`, `policy-spend-limit.json`
 for example payloads.
 

@@ -268,7 +268,8 @@ derivation. Do not lowercase addresses when storing them.
 | KEK never in application memory     | ✓        | Vault handles it internally       | Compromised Vault host = exposed      |
 | Private key never in NestJS process | ✓        | Go crypto service isolation       | Go process memory dump (brief window) |
 | txHash computed by signer           | ✓        | Go RLP + keccak256                | Go must be trusted                    |
-| NestJS has zero Vault access        | ✓        | Single AppRole for Go only        | NestJS process has no crypto fallback |
+| NestJS has zero Vault access        | ✓        | Split env + single AppRole for Go | API still holds CRYPTO_AUTH_TOKEN + DB ciphertext (C-4) |
+| Signer-side hard limits             | ✓        | `SIGNER_*` checks before decrypt  | Misconfiguration can widen limits     |
 | Key material zeroed after use       | ✓        | Explicit Go zero loops            | Mnemonic string (GC, not zeroable)    |
 | Audit trail of all decryptions      | ✓        | Vault audit log + app audit_log   | Log files must be protected           |
 | Per-org blast radius                | ✓        | One DEK per organization          | Compromising Vault exposes all DEKs   |

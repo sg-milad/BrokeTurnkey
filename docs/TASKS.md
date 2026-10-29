@@ -12,15 +12,15 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 ### Deliverables
 
-- Docker Compose with four services: `vault`, `postgres`, `crypto`, `api` on a shared internal network (`walletmvp-network`)
+- Docker Compose with four services: `vault`, `postgres`, `crypto`, `api`; `vault-internal` is reachable only by crypto, `app-internal` by api/postgres/crypto, and only the API has an egress network
 - Persistent named volumes for Vault data and Postgres data
-- Vault initialised with 3 Shamir unseal shares, threshold 2. Unseal keys stored in `.env` (not committed). Transit engine enabled. `wallet-dek` key ring created with `exportable=false` and `allow_plaintext_backup=false`. Audit log enabled to `/vault/logs/audit.log`
+- Vault initialised with 3 Shamir unseal shares, threshold 2. Unseal keys/root token stored in `.env.operator` (not committed, never loaded by containers). Transit engine enabled. `wallet-dek` key ring created with `exportable=false` and `allow_plaintext_backup=false`. Audit log enabled to `/vault/logs/audit.log`
 - PostgreSQL schema deployed via Drizzle ORM (`pnpm db:push`). Nine tables: `organizations`, `users`, `api_keys`, `organization_seeds`, `wallets`, `signing_requests`, `wallet_nonces`, `policies`, `audit_log`
 - NestJS monorepo scaffold: single root `package.json`, libs directory, `apps/api` entry point
 - Go crypto service container: multi-stage Docker build, non-root user, internal port only, `GET /health` returns 200
-- `scripts/unseal.sh` — sources `.env`, submits keys 1 and 2 automatically on restart
+- `scripts/unseal.sh` — sources `.env.operator`, submits keys 1 and 2 automatically on restart
 
-**Done when:** `docker compose up -d` starts all four containers without errors. `GET /health` on the Go service returns 200. Vault status shows `Sealed: false`.
+**Done when:** `docker compose --env-file .env.api up -d` starts all four containers without errors. `GET /health` on the Go service returns 200. Vault status shows `Sealed: false`.
 
 ---
 
@@ -70,7 +70,7 @@ Each phase has a clear goal, a reason it exists, concrete deliverables, and a de
 
 The following tables must exist before Phase 4 begins:
 
-- `api_keys` table with columns: `id`, `org_id`, `name`, `public_key`, `key_id`, `scopes` (jsonb array, e.g., `["wallet:sign", "key:write"]`; default `["*"]`), `status`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`
+- `api_keys` table with columns: `id`, `org_id`, `name`, `public_key`, `key_id`, `scopes` (jsonb array, e.g., `["wallet:sign", "key:write"]`; default `[]`; wildcard rejected at registration), `status`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`
 - `policies` table with columns: `id`, `org_id`, `name`, `description`, `rule_type`, `rule_config` (jsonb), `applies_to`, `target_id`, `priority`, `status`, `created_at`, `updated_at`
 - `audit_log` table with columns: `id`, `org_id`, `user_id`, `wallet_id`, `api_key_id`, `event`, `status`, `metadata` (jsonb), `ip_address`, `user_agent`, `created_at`
 - `users` table with columns: `id`, `org_id`, `external_id`, `email`, `role`, `status`, `created_at`, `updated_at`
@@ -253,11 +253,11 @@ For failures:
 - Scope validation: operations like creating/deleting API keys require
   `key:write` scope; signing requires `wallet:sign` scope. Scope names follow
   `docs/STAMP_AUTH.md` (e.g. `wallet:create`, `wallet:sign`, `wallet:read`,
-  `policy:write`, `key:write`, `*`).
+  `policy:write`, `key:write`). `*` is legacy-only; new keys cannot be minted with it.
 
 **API key management routes**
 
-- `POST /api-keys` — register a public key with scopes (e.g., `["wallet:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org creation and stored hashed in `organizations.bootstrap_token_hash`. Subsequent keys require a valid stamp from a key with `key:write` scope
+- `POST /api-keys` — register a public key with scopes (e.g., `["wallet:sign", "key:write"]`). First key uses a one-time bootstrap token (`X-Bootstrap-Token`) generated during org creation and stored hashed in `organizations.bootstrap_token_hash`; it defaults to management scopes without `wallet:sign`. Subsequent keys require a valid stamp from a key with `key:write` scope
 - `GET /api-keys` — list active keys
 - `DELETE /api-keys/:keyId` — revoke a key (requires `key:write` scope)
 

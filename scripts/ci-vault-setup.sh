@@ -73,17 +73,8 @@ fi
 
 "$VAULT_BIN" write -f transit/keys/wallet-dek type=aes256-gcm96
 
-POLICY_FILE="$(mktemp)"
-cat > "$POLICY_FILE" <<'EOF'
-path "transit/encrypt/wallet-dek" {
-  capabilities = ["update"]
-}
-path "transit/decrypt/wallet-dek" {
-  capabilities = ["update"]
-}
-EOF
+POLICY_FILE="$(dirname "$0")/../vault/policies/wallet-signer.hcl"
 "$VAULT_BIN" policy write wallet-signer "$POLICY_FILE"
-rm -f "$POLICY_FILE"
 
 "$VAULT_BIN" auth enable approle
 "$VAULT_BIN" write auth/approle/role/wallet-signer \

@@ -10,7 +10,7 @@ die() { echo "[migrate] ERROR: $*" >&2; exit 1; }
 
 # Confirm the api container is running
 docker inspect --format='{{.State.Running}}' "$API_CONTAINER" 2>/dev/null | grep -q true \
-  || die "Container '$API_CONTAINER' is not running. Start it first: docker compose up -d"
+  || die "Container '$API_CONTAINER' is not running. Start it first: docker compose --env-file .env.api up -d"
 
 log "Running db:push inside $API_CONTAINER..."
 docker exec "$API_CONTAINER" pnpm db:push

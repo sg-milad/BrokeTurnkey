@@ -10,11 +10,11 @@ import (
 )
 
 type cryptoConfig struct {
-	VaultAddr   string
-	RoleID      string
-	SecretID    string
-	CryptoPort  string
-	AuthToken   string
+	VaultAddr  string
+	RoleID     string
+	SecretID   string
+	CryptoPort string
+	AuthToken  string
 }
 
 func loadConfig() *cryptoConfig {
@@ -50,6 +50,19 @@ func main() {
 	log.Printf("VAULT_SECRET_ID: <set>")
 	log.Printf("CRYPTO_AUTH_TOKEN: <set>")
 	log.Printf("CRYPTO_PORT: %s", cfg.CryptoPort)
+
+	limits, err := loadSignerLimits()
+	if err != nil {
+		log.Fatalf("Invalid signer limit configuration: %v", err)
+	}
+	signerLimits = limits
+	log.Printf("SIGNER_MAX_VALUE_WEI: %s", limits.MaxValueWei.String())
+	log.Printf("SIGNER_ALLOWED_CHAIN_IDS: %d configured", len(limits.AllowedChainIDs))
+	log.Printf("SIGNER_ALLOWED_TO: %d configured", len(limits.AllowedTo))
+	log.Printf("SIGNER_ALLOWED_SELECTORS: %d configured", len(limits.AllowedSelectors))
+	log.Printf("SIGNER_ALLOW_HASH_SIGNING: %t", limits.AllowHashSigning)
+	log.Printf("SIGNER_ALLOW_CONTRACT_CREATION: %t", limits.AllowContractCreation)
+	log.Printf("SIGNER_MAX_GAS_LIMIT: %d", limits.MaxGasLimit)
 
 	// Set the package-level vaultAddr used by vault.go functions
 	vaultAddr = cfg.VaultAddr
